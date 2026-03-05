@@ -195,6 +195,9 @@ namespace WindowsFormsApp1
         }
         private void btnGerarVistaExplodida_Click(object sender, EventArgs e)
         {
+            bool ghostEnabled = chkGhostLinhas.Checked;
+            bool colorizeEnabled = chkColorir.Checked;
+            bool lineGuideEnabled = ghostEnabled;
             try
             {
                 object drawingHandler = CreateDrawingHandler();
@@ -246,9 +249,15 @@ namespace WindowsFormsApp1
 
                 int candidateCount = partPlans.Count;
                 bool truncated = false;
-                if (partPlans.Count > MaxExplodedViews)
+                int maxPartsAllowed = MaxExplodedViews;
+                if (ghostEnabled)
                 {
-                    partPlans.RemoveRange(MaxExplodedViews, partPlans.Count - MaxExplodedViews);
+                    maxPartsAllowed = Math.Max(1, (MaxExplodedViews + 1) / 2);
+                }
+
+                if (partPlans.Count > maxPartsAllowed)
+                {
+                    partPlans.RemoveRange(maxPartsAllowed, partPlans.Count - maxPartsAllowed);
                     truncated = true;
                 }
 
@@ -260,6 +269,8 @@ namespace WindowsFormsApp1
                 object model = CreateModelInstance();
                 int centersFromModel;
                 bool modelLayoutUsed = ComputeExplodedOffsets(sourceView, partPlans, sourceScale, model, out centersFromModel);
+                bool ghostApplied = ghostEnabled && modelLayoutUsed;
+                bool guideLinesApplied = lineGuideEnabled && ghostApplied;
 
                 object anchorOrigin = GetPropertyValue(sourceView, "Origin");
                 double anchorX;
@@ -289,61 +300,202 @@ namespace WindowsFormsApp1
                 int fallbackRotationCount = 0;
                 int contourColoredCount = 0;
                 int contourNotChangedCount = 0;
+                int ghostPairsRequested = 0;
+                int ghostOriginalCreated = 0;
+                int ghostExplodedCreated = 0;
+                int guideLinesRequested = 0;
+                int guideLinesCreated = 0;
+                int guideLinesFailed = 0;
+                int viewSequence = 1;
 
                 for (int i = 0; i < partPlans.Count; i++)
                 {
                     ExplodedPartPlan plan = partPlans[i];
-                    string viewName = ExplodedViewPrefix + (i + 1).ToString("D3");
-                    bool autoIsoApplied;
+                    if (ghostApplied && !plan.IsMainPart)
+                    {
+                        ghostPairsRequested++;
 
-                    object newView = CreateSinglePartView(
+                        bool autoIsoApplied;
+                        bool fallbackRotationApplied;
+                        bool contourAttempted;
+                        bool contourApplied;
+
+                        string originalViewName = ExplodedViewPrefix + viewSequence.ToString("D3") + "_ORG";
+                        viewSequence++;
+                        bool originalCreated = TryCreateAndPlaceColoredView(
+                            sheet,
+                            viewCoordinateSystem,
+                            displayCoordinateSystem,
+                            plan,
+                            sourceScale,
+                            originalViewName,
+                            anchorX + plan.OriginalOffsetX,
+                            anchorY + plan.OriginalOffsetY,
+                            anchorZ,
+                            colorizeEnabled,
+                            true,
+                            out autoIsoApplied,
+                            out fallbackRotationApplied,
+                            out contourAttempted,
+                            out contourApplied);
+
+                        if (originalCreated)
+                        {
+                            created++;
+                            ghostOriginalCreated++;
+                            if (autoIsoApplied)
+                            {
+                                autoIsoAppliedCount++;
+                            }
+
+                            if (fallbackRotationApplied)
+                            {
+                                fallbackRotationCount++;
+                            }
+
+                            if (contourAttempted)
+                            {
+                                if (contourApplied)
+                                {
+                                    contourColoredCount++;
+                                }
+                                else
+                                {
+                                    contourNotChangedCount++;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            failed++;
+                        }
+
+                        string explodedViewName = ExplodedViewPrefix + viewSequence.ToString("D3") + "_EXP";
+                        viewSequence++;
+                        bool explodedCreated = TryCreateAndPlaceColoredView(
+                            sheet,
+                            viewCoordinateSystem,
+                            displayCoordinateSystem,
+                            plan,
+                            sourceScale,
+                            explodedViewName,
+                            anchorX + plan.OffsetX,
+                            anchorY + plan.OffsetY,
+                            anchorZ,
+                            colorizeEnabled,
+                            false,
+                            out autoIsoApplied,
+                            out fallbackRotationApplied,
+                            out contourAttempted,
+                            out contourApplied);
+
+                        if (explodedCreated)
+                        {
+                            created++;
+                            ghostExplodedCreated++;
+                            if (autoIsoApplied)
+                            {
+                                autoIsoAppliedCount++;
+                            }
+
+                            if (fallbackRotationApplied)
+                            {
+                                fallbackRotationCount++;
+                            }
+
+                            if (contourAttempted)
+                            {
+                                if (contourApplied)
+                                {
+                                    contourColoredCount++;
+                                }
+                                else
+                                {
+                                    contourNotChangedCount++;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            failed++;
+                        }
+
+                        if (guideLinesApplied)
+                        {
+                            guideLinesRequested++;
+                            bool pairAvailable = originalCreated && explodedCreated;
+                            if (pairAvailable
+                                && TryCreateGuideLine(
+                                    sheet,
+                                    anchorX + plan.OriginalOffsetX,
+                                    anchorY + plan.OriginalOffsetY,
+                                    anchorZ,
+                                    anchorX + plan.OffsetX,
+                                    anchorY + plan.OffsetY,
+                                    anchorZ))
+                            {
+                                guideLinesCreated++;
+                            }
+                            else
+                            {
+                                guideLinesFailed++;
+                            }
+                        }
+
+                        continue;
+                    }
+
+                    bool standardAutoIsoApplied;
+                    bool standardFallbackRotationApplied;
+                    bool standardContourAttempted;
+                    bool standardContourApplied;
+                    string viewName = ExplodedViewPrefix + viewSequence.ToString("D3");
+                    viewSequence++;
+                    bool standardCreated = TryCreateAndPlaceColoredView(
                         sheet,
                         viewCoordinateSystem,
                         displayCoordinateSystem,
-                        plan.Identifier,
+                        plan,
                         sourceScale,
                         viewName,
-                        out autoIsoApplied);
+                        anchorX + plan.OffsetX,
+                        anchorY + plan.OffsetY,
+                        anchorZ,
+                        colorizeEnabled,
+                        false,
+                        out standardAutoIsoApplied,
+                        out standardFallbackRotationApplied,
+                        out standardContourAttempted,
+                        out standardContourApplied);
 
-                    if (newView == null)
+                    if (!standardCreated)
                     {
                         failed++;
                         continue;
                     }
 
-                    if (autoIsoApplied)
+                    created++;
+                    if (standardAutoIsoApplied)
                     {
                         autoIsoAppliedCount++;
                     }
 
-                    if (RotateExplodedToIsometric && !autoIsoApplied)
+                    if (standardFallbackRotationApplied)
                     {
-                        RotateViewToIsometric(newView);
                         fallbackRotationCount++;
                     }
 
-                    bool positioned = ForceViewCenterToTarget(
-                        newView,
-                        anchorX + plan.OffsetX,
-                        anchorY + plan.OffsetY,
-                        anchorZ);
-                    if (!positioned)
+                    if (standardContourAttempted)
                     {
-                        failed++;
-                        continue;
+                        if (standardContourApplied)
+                        {
+                            contourColoredCount++;
+                        }
+                        else
+                        {
+                            contourNotChangedCount++;
+                        }
                     }
-
-                    int contourColor = GetContourColorForPlan(plan);
-                    if (contourColor > 0 && TryApplyContourColorToView(newView, contourColor))
-                    {
-                        contourColoredCount++;
-                    }
-                    else
-                    {
-                        contourNotChangedCount++;
-                    }
-
-                    created++;
                 }
 
                 InvokeParameterlessMethod(drawingHandler, "SaveActiveDrawing");
@@ -351,8 +503,10 @@ namespace WindowsFormsApp1
                 StringBuilder report = new StringBuilder();
                 report.AppendLine("Vista explodida (somente drawing)");
                 report.AppendLine("---------------------------------");
+                report.AppendLine("Colorir: " + (colorizeEnabled ? "ligado" : "desligado"));
+                report.AppendLine("Linha guia: " + (lineGuideEnabled ? (guideLinesApplied ? "ligada" : "solicitada (desativada por fallback)") : "desligada"));
                 report.AppendLine("Objetos selecionados no desenho: " + selectedObjectCount);
-                report.AppendLine("Partes candidatas na vista: " + candidateCount + (truncated ? " (limitado para " + MaxExplodedViews + ")" : string.Empty));
+                report.AppendLine("Partes candidatas na vista: " + candidateCount + (truncated ? " (limitado para " + maxPartsAllowed + ")" : string.Empty));
                 report.AppendLine("Vistas explodidas antigas removidas: " + removedExisting);
                 report.AppendLine("Base de posicionamento: " + (modelLayoutUsed ? "modelo (posicao relativa)" : "drawing (fallback)"));
                 report.AppendLine("Anchor de posicionamento: " + (anchorFromMainPart ? "centro da peca principal" : "origem da vista"));
@@ -362,6 +516,12 @@ namespace WindowsFormsApp1
                 report.AppendLine("Rotacao isometrica de fallback: " + fallbackRotationCount);
                 report.AppendLine("Cor de contorno aplicada: " + contourColoredCount);
                 report.AppendLine("Sem mudanca de cor: " + contourNotChangedCount);
+                if (guideLinesApplied)
+                {
+                    report.AppendLine("Linhas guia solicitadas: " + guideLinesRequested);
+                    report.AppendLine("Linhas guia criadas: " + guideLinesCreated);
+                    report.AppendLine("Linhas guia falhas: " + guideLinesFailed);
+                }
                 report.AppendLine("Vistas criadas: " + created);
                 report.AppendLine("Falhas: " + failed);
                 report.AppendLine();
@@ -445,34 +605,10 @@ namespace WindowsFormsApp1
 
         private void btnExplodirPorPlanos_Click(object sender, EventArgs e)
         {
-            bool usePlaneXY = chkPlanoXY.Checked;
-            bool usePlaneXZ = chkPlanoXZ.Checked;
-            bool usePlaneZY = chkPlanoZY.Checked;
-
-            if (!usePlaneXY && !usePlaneXZ && !usePlaneZY)
-            {
-                UpdateStatus("Falha: selecione pelo menos um plano (xy/xz/zy).", Color.DarkOrange);
-                SetOutput("Marque ao menos um checkbox de plano antes de explodir.");
-                return;
-            }
-
-            string selectedPlanes = string.Empty;
-            if (usePlaneXY)
-            {
-                selectedPlanes += "xy ";
-            }
-
-            if (usePlaneXZ)
-            {
-                selectedPlanes += "xz ";
-            }
-
-            if (usePlaneZY)
-            {
-                selectedPlanes += "zy ";
-            }
-
-            selectedPlanes = selectedPlanes.Trim();
+            bool autoDetectEnabled = chkDetectaAutomatico.Checked;
+            bool ghostEnabled = chkGhostLinhas.Checked;
+            bool colorizeEnabled = chkColorir.Checked;
+            bool lineGuideEnabled = ghostEnabled;
 
             try
             {
@@ -492,13 +628,32 @@ namespace WindowsFormsApp1
                     return;
                 }
 
-                int selectedObjectCount;
-                object sourceView = TryGetSelectedView(drawingHandler, out selectedObjectCount);
-                if (sourceView == null)
+                int selectedObjectCount = 0;
+                int autoViewCount = 0;
+                int autoIsoCandidates = 0;
+                object sourceView;
+                string referenceMode;
+                if (autoDetectEnabled)
                 {
-                    UpdateStatus("Falha: nenhuma vista selecionada.", Color.DarkOrange);
-                    SetOutput("Selecione a moldura de uma vista (ou um objeto dentro dela) e tente novamente.");
-                    return;
+                    sourceView = TryDetectIsometricReferenceView(activeDrawing, out autoViewCount, out autoIsoCandidates);
+                    referenceMode = "automatico";
+                    if (sourceView == null)
+                    {
+                        UpdateStatus("Falha: nenhuma vista isometrica detectada.", Color.DarkOrange);
+                        SetOutput("Nao foi possivel detectar automaticamente a vista de conjunto. Desligue 'Detecta automaticamente o conjunto' e selecione uma vista manualmente.");
+                        return;
+                    }
+                }
+                else
+                {
+                    sourceView = TryGetSelectedView(drawingHandler, out selectedObjectCount);
+                    referenceMode = "manual";
+                    if (sourceView == null)
+                    {
+                        UpdateStatus("Aguardando selecao de vista.", Color.DarkOrange);
+                        SetOutput("Selecione a moldura de uma vista no desenho. Em seguida, clique novamente em 'Explodir por planos (novo)' para gerar.");
+                        return;
+                    }
                 }
 
                 object sheet = InvokeParameterlessMethod(activeDrawing, "GetSheet");
@@ -525,9 +680,15 @@ namespace WindowsFormsApp1
 
                 int candidateCount = partPlans.Count;
                 bool truncated = false;
-                if (partPlans.Count > MaxExplodedViews)
+                int maxPartsAllowed = MaxExplodedViews;
+                if (ghostEnabled)
                 {
-                    partPlans.RemoveRange(MaxExplodedViews, partPlans.Count - MaxExplodedViews);
+                    maxPartsAllowed = Math.Max(1, (MaxExplodedViews + 1) / 2);
+                }
+
+                if (partPlans.Count > maxPartsAllowed)
+                {
+                    partPlans.RemoveRange(maxPartsAllowed, partPlans.Count - maxPartsAllowed);
                     truncated = true;
                 }
 
@@ -546,9 +707,9 @@ namespace WindowsFormsApp1
                     partPlans,
                     sourceScale,
                     model,
-                    usePlaneXY,
-                    usePlaneXZ,
-                    usePlaneZY,
+                    true,
+                    true,
+                    true,
                     out centersFromModel,
                     out movedByXY,
                     out movedByXZ,
@@ -562,6 +723,9 @@ namespace WindowsFormsApp1
                     centersFromModel = Math.Max(centersFromModel, fallbackCenters);
                     fallbackLayoutUsed = true;
                 }
+
+                bool ghostApplied = ghostEnabled && modelLayoutUsed;
+                bool guideLinesApplied = lineGuideEnabled && ghostApplied;
 
                 object anchorOrigin = GetPropertyValue(sourceView, "Origin");
                 double anchorX;
@@ -591,61 +755,202 @@ namespace WindowsFormsApp1
                 int fallbackRotationCount = 0;
                 int contourColoredCount = 0;
                 int contourNotChangedCount = 0;
+                int ghostPairsRequested = 0;
+                int ghostOriginalCreated = 0;
+                int ghostExplodedCreated = 0;
+                int guideLinesRequested = 0;
+                int guideLinesCreated = 0;
+                int guideLinesFailed = 0;
+                int viewSequence = 1;
 
                 for (int i = 0; i < partPlans.Count; i++)
                 {
                     ExplodedPartPlan plan = partPlans[i];
-                    string viewName = ExplodedViewPrefix + (i + 1).ToString("D3");
-                    bool autoIsoApplied;
+                    if (ghostApplied && !plan.IsMainPart)
+                    {
+                        ghostPairsRequested++;
 
-                    object newView = CreateSinglePartView(
+                        bool autoIsoApplied;
+                        bool fallbackRotationApplied;
+                        bool contourAttempted;
+                        bool contourApplied;
+
+                        string originalViewName = ExplodedViewPrefix + viewSequence.ToString("D3") + "_ORG";
+                        viewSequence++;
+                        bool originalCreated = TryCreateAndPlaceColoredView(
+                            sheet,
+                            viewCoordinateSystem,
+                            displayCoordinateSystem,
+                            plan,
+                            sourceScale,
+                            originalViewName,
+                            anchorX + plan.OriginalOffsetX,
+                            anchorY + plan.OriginalOffsetY,
+                            anchorZ,
+                            colorizeEnabled,
+                            true,
+                            out autoIsoApplied,
+                            out fallbackRotationApplied,
+                            out contourAttempted,
+                            out contourApplied);
+
+                        if (originalCreated)
+                        {
+                            created++;
+                            ghostOriginalCreated++;
+                            if (autoIsoApplied)
+                            {
+                                autoIsoAppliedCount++;
+                            }
+
+                            if (fallbackRotationApplied)
+                            {
+                                fallbackRotationCount++;
+                            }
+
+                            if (contourAttempted)
+                            {
+                                if (contourApplied)
+                                {
+                                    contourColoredCount++;
+                                }
+                                else
+                                {
+                                    contourNotChangedCount++;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            failed++;
+                        }
+
+                        string explodedViewName = ExplodedViewPrefix + viewSequence.ToString("D3") + "_EXP";
+                        viewSequence++;
+                        bool explodedCreated = TryCreateAndPlaceColoredView(
+                            sheet,
+                            viewCoordinateSystem,
+                            displayCoordinateSystem,
+                            plan,
+                            sourceScale,
+                            explodedViewName,
+                            anchorX + plan.OffsetX,
+                            anchorY + plan.OffsetY,
+                            anchorZ,
+                            colorizeEnabled,
+                            false,
+                            out autoIsoApplied,
+                            out fallbackRotationApplied,
+                            out contourAttempted,
+                            out contourApplied);
+
+                        if (explodedCreated)
+                        {
+                            created++;
+                            ghostExplodedCreated++;
+                            if (autoIsoApplied)
+                            {
+                                autoIsoAppliedCount++;
+                            }
+
+                            if (fallbackRotationApplied)
+                            {
+                                fallbackRotationCount++;
+                            }
+
+                            if (contourAttempted)
+                            {
+                                if (contourApplied)
+                                {
+                                    contourColoredCount++;
+                                }
+                                else
+                                {
+                                    contourNotChangedCount++;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            failed++;
+                        }
+
+                        if (guideLinesApplied)
+                        {
+                            guideLinesRequested++;
+                            bool pairAvailable = originalCreated && explodedCreated;
+                            if (pairAvailable
+                                && TryCreateGuideLine(
+                                    sheet,
+                                    anchorX + plan.OriginalOffsetX,
+                                    anchorY + plan.OriginalOffsetY,
+                                    anchorZ,
+                                    anchorX + plan.OffsetX,
+                                    anchorY + plan.OffsetY,
+                                    anchorZ))
+                            {
+                                guideLinesCreated++;
+                            }
+                            else
+                            {
+                                guideLinesFailed++;
+                            }
+                        }
+
+                        continue;
+                    }
+
+                    bool standardAutoIsoApplied;
+                    bool standardFallbackRotationApplied;
+                    bool standardContourAttempted;
+                    bool standardContourApplied;
+                    string viewName = ExplodedViewPrefix + viewSequence.ToString("D3");
+                    viewSequence++;
+                    bool standardCreated = TryCreateAndPlaceColoredView(
                         sheet,
                         viewCoordinateSystem,
                         displayCoordinateSystem,
-                        plan.Identifier,
+                        plan,
                         sourceScale,
                         viewName,
-                        out autoIsoApplied);
+                        anchorX + plan.OffsetX,
+                        anchorY + plan.OffsetY,
+                        anchorZ,
+                        colorizeEnabled,
+                        false,
+                        out standardAutoIsoApplied,
+                        out standardFallbackRotationApplied,
+                        out standardContourAttempted,
+                        out standardContourApplied);
 
-                    if (newView == null)
+                    if (!standardCreated)
                     {
                         failed++;
                         continue;
                     }
 
-                    if (autoIsoApplied)
+                    created++;
+                    if (standardAutoIsoApplied)
                     {
                         autoIsoAppliedCount++;
                     }
 
-                    if (RotateExplodedToIsometric && !autoIsoApplied)
+                    if (standardFallbackRotationApplied)
                     {
-                        RotateViewToIsometric(newView);
                         fallbackRotationCount++;
                     }
 
-                    bool positioned = ForceViewCenterToTarget(
-                        newView,
-                        anchorX + plan.OffsetX,
-                        anchorY + plan.OffsetY,
-                        anchorZ);
-                    if (!positioned)
+                    if (standardContourAttempted)
                     {
-                        failed++;
-                        continue;
+                        if (standardContourApplied)
+                        {
+                            contourColoredCount++;
+                        }
+                        else
+                        {
+                            contourNotChangedCount++;
+                        }
                     }
-
-                    int contourColor = GetContourColorForPlan(plan);
-                    if (contourColor > 0 && TryApplyContourColorToView(newView, contourColor))
-                    {
-                        contourColoredCount++;
-                    }
-                    else
-                    {
-                        contourNotChangedCount++;
-                    }
-
-                    created++;
                 }
 
                 InvokeParameterlessMethod(drawingHandler, "SaveActiveDrawing");
@@ -653,9 +958,20 @@ namespace WindowsFormsApp1
                 StringBuilder report = new StringBuilder();
                 report.AppendLine("Vista explodida por planos (somente drawing)");
                 report.AppendLine("--------------------------------------------");
-                report.AppendLine("Planos ativos: " + selectedPlanes);
-                report.AppendLine("Objetos selecionados no desenho: " + selectedObjectCount);
-                report.AppendLine("Partes candidatas na vista: " + candidateCount + (truncated ? " (limitado para " + MaxExplodedViews + ")" : string.Empty));
+                report.AppendLine("Referencia da vista: " + referenceMode);
+                report.AppendLine("Colorir: " + (colorizeEnabled ? "ligado" : "desligado"));
+                report.AppendLine("Ghost: " + (ghostEnabled ? (ghostApplied ? "ativo" : "solicitado (desativado por fallback)") : "desligado"));
+                report.AppendLine("Linha guia: " + (lineGuideEnabled ? (guideLinesApplied ? "ligada" : "solicitada (desativada por fallback)") : "desligada"));
+                if (autoDetectEnabled)
+                {
+                    report.AppendLine("Vistas avaliadas automaticamente: " + autoViewCount);
+                    report.AppendLine("Candidatas isometricas: " + autoIsoCandidates);
+                }
+                else
+                {
+                    report.AppendLine("Objetos selecionados no desenho: " + selectedObjectCount);
+                }
+                report.AppendLine("Partes candidatas na vista: " + candidateCount + (truncated ? " (limitado para " + maxPartsAllowed + ")" : string.Empty));
                 report.AppendLine("Vistas explodidas antigas removidas: " + removedExisting);
                 report.AppendLine("Base de posicionamento: " + (modelLayoutUsed ? "modelo (explosao por planos)" : "fallback"));
                 report.AppendLine("Fallback usado: " + (fallbackLayoutUsed ? "sim" : "nao"));
@@ -670,6 +986,18 @@ namespace WindowsFormsApp1
                 report.AppendLine("Rotacao isometrica de fallback: " + fallbackRotationCount);
                 report.AppendLine("Cor de contorno aplicada: " + contourColoredCount);
                 report.AppendLine("Sem mudanca de cor: " + contourNotChangedCount);
+                if (guideLinesApplied)
+                {
+                    report.AppendLine("Linhas guia solicitadas: " + guideLinesRequested);
+                    report.AppendLine("Linhas guia criadas: " + guideLinesCreated);
+                    report.AppendLine("Linhas guia falhas: " + guideLinesFailed);
+                }
+                if (ghostApplied)
+                {
+                    report.AppendLine("Ghost pares secundarios: " + ghostPairsRequested);
+                    report.AppendLine("Ghost vistas originais criadas: " + ghostOriginalCreated);
+                    report.AppendLine("Ghost vistas deslocadas criadas: " + ghostExplodedCreated);
+                }
                 report.AppendLine("Vistas criadas: " + created);
                 report.AppendLine("Falhas: " + failed);
                 report.AppendLine();
@@ -693,6 +1021,394 @@ namespace WindowsFormsApp1
             {
                 UpdateStatus("Erro ao explodir por planos: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
             }
+        }
+
+        private bool TryCreateAndPlaceColoredView(
+            object sheet,
+            object viewCoordinateSystem,
+            object displayCoordinateSystem,
+            ExplodedPartPlan plan,
+            double sourceScale,
+            string viewName,
+            double targetX,
+            double targetY,
+            double targetZ,
+            bool applyColoring,
+            bool applyGhostStyle,
+            out bool autoIsoApplied,
+            out bool fallbackRotationApplied,
+            out bool contourAttempted,
+            out bool contourApplied)
+        {
+            autoIsoApplied = false;
+            fallbackRotationApplied = false;
+            contourAttempted = false;
+            contourApplied = false;
+
+            object newView = CreateSinglePartView(
+                sheet,
+                viewCoordinateSystem,
+                displayCoordinateSystem,
+                plan.Identifier,
+                sourceScale,
+                viewName,
+                out autoIsoApplied);
+            if (newView == null)
+            {
+                return false;
+            }
+
+            if (RotateExplodedToIsometric && !autoIsoApplied)
+            {
+                RotateViewToIsometric(newView);
+                fallbackRotationApplied = true;
+            }
+
+            bool positioned = ForceViewCenterToTarget(newView, targetX, targetY, targetZ);
+            if (!positioned)
+            {
+                InvokeBoolMethod(newView, "Delete");
+                return false;
+            }
+
+            if (applyGhostStyle)
+            {
+                TryApplyGhostStyleToView(newView);
+            }
+
+            int contourColor = GetContourColorForPlan(plan);
+            contourAttempted = applyColoring && contourColor > 0;
+            if (contourAttempted)
+            {
+                contourApplied = TryApplyContourColorToView(newView, contourColor);
+            }
+
+            return true;
+        }
+
+        private static bool TryCreateGuideLine(
+            object viewBase,
+            double startX,
+            double startY,
+            double startZ,
+            double endX,
+            double endY,
+            double endZ)
+        {
+            if (viewBase == null)
+            {
+                return false;
+            }
+
+            double dx = endX - startX;
+            double dy = endY - startY;
+            double dz = endZ - startZ;
+            if (((dx * dx) + (dy * dy) + (dz * dz)) < 1e-8)
+            {
+                return false;
+            }
+
+            object startPoint = CreatePoint(startX, startY, startZ);
+            object endPoint = CreatePoint(endX, endY, endZ);
+            if (startPoint == null || endPoint == null)
+            {
+                return false;
+            }
+
+            Type lineType = ResolveTeklaType(
+                "Tekla.Structures.Drawing.Line",
+                "Tekla.Structures.Drawing",
+                TeklaDrawingDllCandidates);
+            if (lineType == null)
+            {
+                return false;
+            }
+
+            Type lineAttributesType = ResolveTeklaType(
+                "Tekla.Structures.Drawing.Line+LineAttributes",
+                "Tekla.Structures.Drawing",
+                TeklaDrawingDllCandidates);
+
+            object lineAttributes = null;
+            if (lineAttributesType != null)
+            {
+                try
+                {
+                    lineAttributes = Activator.CreateInstance(lineAttributesType);
+                }
+                catch
+                {
+                    lineAttributes = null;
+                }
+            }
+
+            if (lineAttributes != null)
+            {
+                ApplyGuideLineStyle(lineAttributes);
+            }
+
+            object lineObject = null;
+            if (lineAttributes != null)
+            {
+                try
+                {
+                    lineObject = Activator.CreateInstance(lineType, new object[] { viewBase, startPoint, endPoint, lineAttributes });
+                }
+                catch
+                {
+                    lineObject = null;
+                }
+            }
+
+            if (lineObject == null)
+            {
+                try
+                {
+                    lineObject = Activator.CreateInstance(lineType, new object[] { viewBase, startPoint, endPoint });
+                }
+                catch
+                {
+                    lineObject = null;
+                }
+            }
+
+            if (lineObject == null)
+            {
+                return false;
+            }
+
+            if (lineAttributes != null)
+            {
+                SetPropertyValue(lineObject, "Attributes", lineAttributes, "Tekla.Structures.Drawing.Line");
+            }
+
+            bool? inserted = InvokeBoolMethod(lineObject, "Insert");
+            if (!inserted.HasValue || !inserted.Value)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool ApplyGuideLineStyle(object lineAttributes)
+        {
+            if (lineAttributes == null)
+            {
+                return false;
+            }
+
+            bool changed = false;
+            object lineTypeAttributes = GetPropertyValue(lineAttributes, "Line");
+            if (lineTypeAttributes != null)
+            {
+                changed |= TrySetLineTypeDashed(lineTypeAttributes);
+                changed |= TrySetColorProperty(lineTypeAttributes, "Color", 160);
+                changed |= TrySetColorProperty(lineTypeAttributes, "TrueColor", 160);
+                SetPropertyValue(lineAttributes, "Line", lineTypeAttributes);
+            }
+
+            return changed;
+        }
+
+        private static bool TryApplyGhostStyleToView(object view)
+        {
+            if (view == null)
+            {
+                return false;
+            }
+
+            bool anyChange = false;
+
+            object modelObjects = InvokeParameterlessMethod(view, "GetModelObjects");
+            if (modelObjects != null)
+            {
+                anyChange |= TryApplyGhostStyleToEnumerator(modelObjects);
+            }
+
+            if (!anyChange)
+            {
+                object allObjects = InvokeParameterlessMethod(view, "GetObjects")
+                    ?? InvokeParameterlessMethod(view, "GetAllObjects");
+                if (allObjects != null)
+                {
+                    anyChange |= TryApplyGhostStyleToEnumerator(allObjects);
+                }
+            }
+
+            if (anyChange)
+            {
+                InvokeBoolMethod(view, "Modify");
+            }
+
+            return anyChange;
+        }
+
+        private static bool TryApplyGhostStyleToEnumerator(object enumerator)
+        {
+            if (enumerator == null)
+            {
+                return false;
+            }
+
+            MethodInfo moveNext = enumerator.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo current = enumerator.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
+            if (moveNext == null || current == null)
+            {
+                return false;
+            }
+
+            bool anyChange = false;
+            while (true)
+            {
+                object moved = moveNext.Invoke(enumerator, null);
+                if (!(moved is bool) || !(bool)moved)
+                {
+                    break;
+                }
+
+                object drawingObject = current.GetValue(enumerator, null);
+                if (drawingObject == null)
+                {
+                    continue;
+                }
+
+                if (TryApplyGhostStyleToPartObject(drawingObject))
+                {
+                    anyChange = true;
+                    InvokeBoolMethod(drawingObject, "Modify");
+                }
+            }
+
+            return anyChange;
+        }
+
+        private static bool TryApplyGhostStyleToPartObject(object drawingObject)
+        {
+            if (drawingObject == null)
+            {
+                return false;
+            }
+
+            Type type = drawingObject.GetType();
+            string fullName = type != null ? type.FullName : null;
+            if (!string.Equals(fullName, "Tekla.Structures.Drawing.Part", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            object partAttributes = GetPropertyValue(drawingObject, "Attributes", "Tekla.Structures.Drawing.Part")
+                ?? GetPropertyValue(drawingObject, "Attributes");
+            if (partAttributes == null)
+            {
+                return false;
+            }
+
+            bool changed = TryApplyGhostStyleToPartAttributes(partAttributes);
+            if (!changed)
+            {
+                return false;
+            }
+
+            bool attributesSet = SetPropertyValue(drawingObject, "Attributes", partAttributes, "Tekla.Structures.Drawing.Part")
+                || SetPropertyValue(drawingObject, "Attributes", partAttributes);
+            return attributesSet;
+        }
+
+        private static bool TryApplyGhostStyleToPartAttributes(object partAttributes)
+        {
+            if (partAttributes == null)
+            {
+                return false;
+            }
+
+            bool changed = false;
+
+            object visibleLines = GetPropertyValue(partAttributes, "VisibleLines");
+            if (visibleLines != null)
+            {
+                changed |= TrySetLineTypeDashed(visibleLines);
+                SetPropertyValue(partAttributes, "VisibleLines", visibleLines);
+            }
+
+            object hiddenLines = GetPropertyValue(partAttributes, "HiddenLines");
+            if (hiddenLines != null)
+            {
+                changed |= TrySetLineTypeDashed(hiddenLines);
+                SetPropertyValue(partAttributes, "HiddenLines", hiddenLines);
+            }
+
+            object referenceLine = GetPropertyValue(partAttributes, "ReferenceLine");
+            if (referenceLine != null)
+            {
+                changed |= TrySetLineTypeDashed(referenceLine);
+                SetPropertyValue(partAttributes, "ReferenceLine", referenceLine);
+            }
+
+            object faceHatch = GetPropertyValue(partAttributes, "FaceHatch");
+            if (faceHatch != null)
+            {
+                changed |= TrySetHatchInvisible(faceHatch);
+                SetPropertyValue(partAttributes, "FaceHatch", faceHatch);
+            }
+
+            object sectionFaceHatch = GetPropertyValue(partAttributes, "SectionFaceHatch");
+            if (sectionFaceHatch != null)
+            {
+                changed |= TrySetHatchInvisible(sectionFaceHatch);
+                SetPropertyValue(partAttributes, "SectionFaceHatch", sectionFaceHatch);
+            }
+
+            return changed;
+        }
+
+        private static bool TrySetLineTypeDashed(object lineTypeAttributes)
+        {
+            if (lineTypeAttributes == null || !IsLineTypeAttributesObject(lineTypeAttributes))
+            {
+                return false;
+            }
+
+            Type lineTypeType = lineTypeAttributes.GetType();
+            Assembly drawingAssembly = lineTypeType.Assembly;
+            if (drawingAssembly == null)
+            {
+                return false;
+            }
+
+            Type lineTypesClass = drawingAssembly.GetType("Tekla.Structures.Drawing.LineTypes", false);
+            if (lineTypesClass == null)
+            {
+                return false;
+            }
+
+            FieldInfo dashedField = lineTypesClass.GetField("DashedLine", BindingFlags.Public | BindingFlags.Static);
+            if (dashedField == null)
+            {
+                return false;
+            }
+
+            object dashedValue = dashedField.GetValue(null);
+            if (dashedValue == null)
+            {
+                return false;
+            }
+
+            return SetPropertyValue(lineTypeAttributes, "Type", dashedValue);
+        }
+
+        private static bool TrySetHatchInvisible(object hatchAttributes)
+        {
+            if (hatchAttributes == null)
+            {
+                return false;
+            }
+
+            bool changed = false;
+            changed |= TrySetColorProperty(hatchAttributes, "Color", 152);
+            changed |= TrySetColorProperty(hatchAttributes, "BackgroundColor", 152);
+            changed |= SetPropertyValue(hatchAttributes, "DrawBackgroundColor", false);
+            return changed;
         }
 
         private static int GetContourColorForPlan(ExplodedPartPlan plan)
@@ -1334,6 +2050,130 @@ namespace WindowsFormsApp1
             return null;
         }
 
+        private static object TryDetectIsometricReferenceView(object activeDrawing, out int evaluatedViews, out int isometricCandidates)
+        {
+            evaluatedViews = 0;
+            isometricCandidates = 0;
+
+            if (activeDrawing == null)
+            {
+                return null;
+            }
+
+            object sheet = InvokeParameterlessMethod(activeDrawing, "GetSheet");
+            if (sheet == null)
+            {
+                return null;
+            }
+
+            object allObjects = InvokeParameterlessMethod(sheet, "GetAllObjects");
+            if (allObjects == null)
+            {
+                return null;
+            }
+
+            MethodInfo moveNext = allObjects.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo current = allObjects.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
+            if (moveNext == null || current == null)
+            {
+                return null;
+            }
+
+            object bestIsoView = null;
+            double bestIsoScore = double.MinValue;
+            double bestIsoArea = double.MinValue;
+            object bestFallbackView = null;
+            double bestFallbackArea = double.MinValue;
+
+            while (true)
+            {
+                object moved = moveNext.Invoke(allObjects, null);
+                if (!(moved is bool) || !(bool)moved)
+                {
+                    break;
+                }
+
+                object drawingObject = current.GetValue(allObjects, null);
+                if (!IsViewObject(drawingObject, null))
+                {
+                    continue;
+                }
+
+                object rawName = GetPropertyValue(drawingObject, "Name");
+                string viewName = rawName != null ? rawName.ToString() : string.Empty;
+                if (!string.IsNullOrWhiteSpace(viewName)
+                    && viewName.StartsWith(ExplodedViewPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                evaluatedViews++;
+
+                double viewWidth = ReadDoubleProperty(drawingObject, "Width", 1.0);
+                double viewHeight = ReadDoubleProperty(drawingObject, "Height", 1.0);
+                double viewArea = Math.Max(1.0, Math.Abs(viewWidth * viewHeight));
+                double isoScore = ComputeIsometricScore(drawingObject);
+
+                const double isoThreshold = 0.45;
+                bool isIso = isoScore >= isoThreshold;
+                if (isIso)
+                {
+                    isometricCandidates++;
+                    if (isoScore > bestIsoScore
+                        || (Math.Abs(isoScore - bestIsoScore) < 1e-6 && viewArea > bestIsoArea))
+                    {
+                        bestIsoScore = isoScore;
+                        bestIsoArea = viewArea;
+                        bestIsoView = drawingObject;
+                    }
+                }
+
+                if (viewArea > bestFallbackArea)
+                {
+                    bestFallbackArea = viewArea;
+                    bestFallbackView = drawingObject;
+                }
+            }
+
+            return bestIsoView ?? bestFallbackView;
+        }
+
+        private static double ComputeIsometricScore(object view)
+        {
+            double axisXx;
+            double axisXy;
+            double axisXz;
+            double axisYx;
+            double axisYy;
+            double axisYz;
+            if (!TryGetViewDisplayAxes(view, out axisXx, out axisXy, out axisXz, out axisYx, out axisYy, out axisYz))
+            {
+                return 0.0;
+            }
+
+            double axisZx = (axisXy * axisYz) - (axisXz * axisYy);
+            double axisZy = (axisXz * axisYx) - (axisXx * axisYz);
+            double axisZz = (axisXx * axisYy) - (axisXy * axisYx);
+            if (!NormalizeVector3D(ref axisZx, ref axisZy, ref axisZz))
+            {
+                return 0.0;
+            }
+
+            double scoreX = ComputeAxisSpreadScore(axisXx, axisXy, axisXz);
+            double scoreY = ComputeAxisSpreadScore(axisYx, axisYy, axisYz);
+            double scoreZ = ComputeAxisSpreadScore(axisZx, axisZy, axisZz);
+            return scoreX + scoreY + scoreZ;
+        }
+
+        private static double ComputeAxisSpreadScore(double x, double y, double z)
+        {
+            double ax = Math.Abs(x);
+            double ay = Math.Abs(y);
+            double az = Math.Abs(z);
+            double dominant = Math.Max(ax, Math.Max(ay, az));
+            return Math.Max(0.0, 1.0 - dominant);
+        }
+
         private static object ExtractViewFromSelectedObject(object selectedObject, Type viewBaseType)
         {
             if (IsViewObject(selectedObject, viewBaseType))
@@ -1840,6 +2680,8 @@ namespace WindowsFormsApp1
 
             for (int i = 0; i < plans.Count; i++)
             {
+                plans[i].OriginalOffsetX = 0.0;
+                plans[i].OriginalOffsetY = 0.0;
                 plans[i].OffsetX = 0.0;
                 plans[i].OffsetY = 0.0;
                 plans[i].HasComputedOffset = false;
@@ -1889,6 +2731,8 @@ namespace WindowsFormsApp1
 
             for (int i = 0; i < plans.Count; i++)
             {
+                plans[i].OriginalOffsetX = 0.0;
+                plans[i].OriginalOffsetY = 0.0;
                 plans[i].OffsetX = 0.0;
                 plans[i].OffsetY = 0.0;
                 plans[i].HasComputedOffset = false;
@@ -2212,6 +3056,8 @@ namespace WindowsFormsApp1
                     plan.IsOtherPlane = false;
                 }
 
+                plan.OriginalOffsetX = baseOffsetX;
+                plan.OriginalOffsetY = baseOffsetY;
                 plan.OffsetX = baseOffsetX + explodeOffsetX;
                 plan.OffsetY = baseOffsetY + explodeOffsetY;
                 plan.HasComputedOffset = true;
@@ -2616,6 +3462,8 @@ namespace WindowsFormsApp1
                     }
                 }
 
+                plan.OriginalOffsetX = baseOffsetX;
+                plan.OriginalOffsetY = baseOffsetY;
                 plan.OffsetX = baseOffsetX + explodeOffsetX;
                 plan.OffsetY = baseOffsetY + explodeOffsetY;
                 plan.HasComputedOffset = true;
@@ -2973,6 +3821,8 @@ namespace WindowsFormsApp1
             for (int i = 0; i < centeredPlans.Count; i++)
             {
                 ExplodedPartPlan plan = centeredPlans[i];
+                plan.OriginalOffsetX = plan.Center2DX - mainPlan.Center2DX;
+                plan.OriginalOffsetY = plan.Center2DY - mainPlan.Center2DY;
                 plan.OffsetX = plan.Center2DX - mainPlan.Center2DX;
                 plan.OffsetY = plan.Center2DY - mainPlan.Center2DY;
                 plan.HasComputedOffset = true;
@@ -3016,6 +3866,8 @@ namespace WindowsFormsApp1
                 {
                     double angle = (2.0 * Math.PI * i) / Math.Max(1, countInRing);
                     ExplodedPartPlan plan = targetPlans[currentIndex + i];
+                    plan.OriginalOffsetX = 0.0;
+                    plan.OriginalOffsetY = 0.0;
                     plan.OffsetX = Math.Cos(angle) * radius;
                     plan.OffsetY = Math.Sin(angle) * radius;
                     plan.HasComputedOffset = true;
@@ -3546,6 +4398,8 @@ namespace WindowsFormsApp1
             public int SideOfZYPlane;
             public int ColorPlane;
             public bool HasComputedOffset;
+            public double OriginalOffsetX;
+            public double OriginalOffsetY;
             public double OffsetX;
             public double OffsetY;
         }

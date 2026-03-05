@@ -35,9 +35,9 @@
             this.btnGerarVistaExplodida = new System.Windows.Forms.Button();
             this.btnLimparVistaExplodida = new System.Windows.Forms.Button();
             this.btnExplodirPorPlanos = new System.Windows.Forms.Button();
-            this.chkPlanoXY = new System.Windows.Forms.CheckBox();
-            this.chkPlanoXZ = new System.Windows.Forms.CheckBox();
-            this.chkPlanoZY = new System.Windows.Forms.CheckBox();
+            this.chkDetectaAutomatico = new System.Windows.Forms.CheckBox();
+            this.chkColorir = new System.Windows.Forms.CheckBox();
+            this.chkGhostLinhas = new System.Windows.Forms.CheckBox();
             this.lblStatusTekla = new System.Windows.Forms.Label();
             this.txtSaida = new System.Windows.Forms.TextBox();
             this.SuspendLayout();
@@ -102,37 +102,39 @@
             this.btnExplodirPorPlanos.UseVisualStyleBackColor = true;
             this.btnExplodirPorPlanos.Click += new System.EventHandler(this.btnExplodirPorPlanos_Click);
             // 
-            // chkPlanoXY
+            // chkDetectaAutomatico
             // 
-            this.chkPlanoXY.AutoSize = true;
-            this.chkPlanoXY.Checked = true;
-            this.chkPlanoXY.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkPlanoXY.Location = new System.Drawing.Point(26, 79);
-            this.chkPlanoXY.Name = "chkPlanoXY";
-            this.chkPlanoXY.Size = new System.Drawing.Size(44, 20);
-            this.chkPlanoXY.TabIndex = 6;
-            this.chkPlanoXY.Text = "xy";
-            this.chkPlanoXY.UseVisualStyleBackColor = true;
+            this.chkDetectaAutomatico.AutoSize = true;
+            this.chkDetectaAutomatico.Checked = true;
+            this.chkDetectaAutomatico.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkDetectaAutomatico.Location = new System.Drawing.Point(26, 79);
+            this.chkDetectaAutomatico.Name = "chkDetectaAutomatico";
+            this.chkDetectaAutomatico.Size = new System.Drawing.Size(225, 20);
+            this.chkDetectaAutomatico.TabIndex = 6;
+            this.chkDetectaAutomatico.Text = "Detecta automaticamente o conjunto";
+            this.chkDetectaAutomatico.UseVisualStyleBackColor = true;
             // 
-            // chkPlanoXZ
+            // chkColorir
             // 
-            this.chkPlanoXZ.AutoSize = true;
-            this.chkPlanoXZ.Location = new System.Drawing.Point(86, 79);
-            this.chkPlanoXZ.Name = "chkPlanoXZ";
-            this.chkPlanoXZ.Size = new System.Drawing.Size(44, 20);
-            this.chkPlanoXZ.TabIndex = 7;
-            this.chkPlanoXZ.Text = "xz";
-            this.chkPlanoXZ.UseVisualStyleBackColor = true;
+            this.chkColorir.AutoSize = true;
+            this.chkColorir.Location = new System.Drawing.Point(272, 79);
+            this.chkColorir.Name = "chkColorir";
+            this.chkColorir.Size = new System.Drawing.Size(67, 20);
+            this.chkColorir.TabIndex = 7;
+            this.chkColorir.Text = "Colorir";
+            this.chkColorir.UseVisualStyleBackColor = true;
             // 
-            // chkPlanoZY
+            // chkGhostLinhas
             // 
-            this.chkPlanoZY.AutoSize = true;
-            this.chkPlanoZY.Location = new System.Drawing.Point(146, 79);
-            this.chkPlanoZY.Name = "chkPlanoZY";
-            this.chkPlanoZY.Size = new System.Drawing.Size(43, 20);
-            this.chkPlanoZY.TabIndex = 8;
-            this.chkPlanoZY.Text = "zy";
-            this.chkPlanoZY.UseVisualStyleBackColor = true;
+            this.chkGhostLinhas.AutoSize = true;
+            this.chkGhostLinhas.Checked = true;
+            this.chkGhostLinhas.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkGhostLinhas.Location = new System.Drawing.Point(354, 79);
+            this.chkGhostLinhas.Name = "chkGhostLinhas";
+            this.chkGhostLinhas.Size = new System.Drawing.Size(111, 20);
+            this.chkGhostLinhas.TabIndex = 8;
+            this.chkGhostLinhas.Text = "Ghost + linhas";
+            this.chkGhostLinhas.UseVisualStyleBackColor = true;
             // 
             // lblStatusTekla
             // 
@@ -160,9 +162,9 @@
             this.ClientSize = new System.Drawing.Size(960, 560);
             this.Controls.Add(this.txtSaida);
             this.Controls.Add(this.lblStatusTekla);
-            this.Controls.Add(this.chkPlanoZY);
-            this.Controls.Add(this.chkPlanoXZ);
-            this.Controls.Add(this.chkPlanoXY);
+            this.Controls.Add(this.chkGhostLinhas);
+            this.Controls.Add(this.chkColorir);
+            this.Controls.Add(this.chkDetectaAutomatico);
             this.Controls.Add(this.btnExplodirPorPlanos);
             this.Controls.Add(this.btnLimparVistaExplodida);
             this.Controls.Add(this.btnGerarVistaExplodida);
@@ -182,9 +184,9 @@
         private System.Windows.Forms.Button btnGerarVistaExplodida;
         private System.Windows.Forms.Button btnLimparVistaExplodida;
         private System.Windows.Forms.Button btnExplodirPorPlanos;
-        private System.Windows.Forms.CheckBox chkPlanoXY;
-        private System.Windows.Forms.CheckBox chkPlanoXZ;
-        private System.Windows.Forms.CheckBox chkPlanoZY;
+        private System.Windows.Forms.CheckBox chkDetectaAutomatico;
+        private System.Windows.Forms.CheckBox chkColorir;
+        private System.Windows.Forms.CheckBox chkGhostLinhas;
         private System.Windows.Forms.Label lblStatusTekla;
         private System.Windows.Forms.TextBox txtSaida;
     }
