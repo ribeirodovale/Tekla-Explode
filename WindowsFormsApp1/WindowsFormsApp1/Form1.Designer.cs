@@ -38,6 +38,8 @@
             this.chkPlanoXY = new System.Windows.Forms.CheckBox();
             this.chkPlanoXZ = new System.Windows.Forms.CheckBox();
             this.chkPlanoZY = new System.Windows.Forms.CheckBox();
+            this.chkGhostLinhas = new System.Windows.Forms.CheckBox();
+            this.chkColorir = new System.Windows.Forms.CheckBox();
             this.lblStatusTekla = new System.Windows.Forms.Label();
             this.txtSaida = new System.Windows.Forms.TextBox();
             this.SuspendLayout();
@@ -134,13 +136,35 @@
             this.chkPlanoZY.Text = "zy";
             this.chkPlanoZY.UseVisualStyleBackColor = true;
             // 
+            // chkGhostLinhas
+            // 
+            this.chkGhostLinhas.AutoSize = true;
+            this.chkGhostLinhas.Checked = true;
+            this.chkGhostLinhas.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkGhostLinhas.Location = new System.Drawing.Point(206, 79);
+            this.chkGhostLinhas.Name = "chkGhostLinhas";
+            this.chkGhostLinhas.Size = new System.Drawing.Size(115, 20);
+            this.chkGhostLinhas.TabIndex = 9;
+            this.chkGhostLinhas.Text = "Ghost + linha";
+            this.chkGhostLinhas.UseVisualStyleBackColor = true;
+            // 
+            // chkColorir
+            // 
+            this.chkColorir.AutoSize = true;
+            this.chkColorir.Location = new System.Drawing.Point(337, 79);
+            this.chkColorir.Name = "chkColorir";
+            this.chkColorir.Size = new System.Drawing.Size(68, 20);
+            this.chkColorir.TabIndex = 10;
+            this.chkColorir.Text = "Colorir";
+            this.chkColorir.UseVisualStyleBackColor = true;
+            // 
             // lblStatusTekla
             // 
             this.lblStatusTekla.AutoSize = true;
             this.lblStatusTekla.Location = new System.Drawing.Point(23, 114);
             this.lblStatusTekla.Name = "lblStatusTekla";
             this.lblStatusTekla.Size = new System.Drawing.Size(85, 16);
-            this.lblStatusTekla.TabIndex = 9;
+            this.lblStatusTekla.TabIndex = 11;
             this.lblStatusTekla.Text = "Status: N/D";
             // 
             // txtSaida
@@ -151,7 +175,7 @@
             this.txtSaida.ReadOnly = true;
             this.txtSaida.ScrollBars = System.Windows.Forms.ScrollBars.Both;
             this.txtSaida.Size = new System.Drawing.Size(904, 388);
-            this.txtSaida.TabIndex = 10;
+            this.txtSaida.TabIndex = 12;
             this.txtSaida.WordWrap = false;
             // 
             // Form1
@@ -160,6 +184,8 @@
             this.ClientSize = new System.Drawing.Size(960, 560);
             this.Controls.Add(this.txtSaida);
             this.Controls.Add(this.lblStatusTekla);
+            this.Controls.Add(this.chkColorir);
+            this.Controls.Add(this.chkGhostLinhas);
             this.Controls.Add(this.chkPlanoZY);
             this.Controls.Add(this.chkPlanoXZ);
             this.Controls.Add(this.chkPlanoXY);
@@ -185,6 +211,8 @@
         private System.Windows.Forms.CheckBox chkPlanoXY;
         private System.Windows.Forms.CheckBox chkPlanoXZ;
         private System.Windows.Forms.CheckBox chkPlanoZY;
+        private System.Windows.Forms.CheckBox chkGhostLinhas;
+        private System.Windows.Forms.CheckBox chkColorir;
         private System.Windows.Forms.Label lblStatusTekla;
         private System.Windows.Forms.TextBox txtSaida;
     }
