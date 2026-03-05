@@ -1142,6 +1142,12 @@ namespace WindowsFormsApp1
                 ApplyGuideLineStyle(lineAttributes);
             }
 
+            string guideLineName = GuideLineNamePrefix + Guid.NewGuid().ToString("N");
+            if (lineAttributes != null)
+            {
+                SetPropertyValue(lineAttributes, "Name", guideLineName);
+            }
+
             object lineObject = null;
             if (lineAttributes != null)
             {
@@ -1177,7 +1183,7 @@ namespace WindowsFormsApp1
                 SetPropertyValue(lineObject, "Attributes", lineAttributes, "Tekla.Structures.Drawing.Line");
             }
 
-            SetPropertyValue(lineObject, "Name", GuideLineNamePrefix + Guid.NewGuid().ToString("N"));
+            SetPropertyValue(lineObject, "Name", guideLineName);
             bool? inserted = InvokeBoolMethod(lineObject, "Insert");
             return inserted.HasValue && inserted.Value;
         }
@@ -2506,10 +2512,7 @@ namespace WindowsFormsApp1
                     continue;
                 }
 
-                object rawName = GetPropertyValue(drawingObject, "Name");
-                string name = rawName != null ? rawName.ToString() : string.Empty;
-                if (!string.IsNullOrWhiteSpace(name)
-                    && name.StartsWith(GuideLineNamePrefix, StringComparison.OrdinalIgnoreCase))
+                if (IsGuideLineObject(drawingObject))
                 {
                     linesToDelete.Add(drawingObject);
                 }
@@ -2542,8 +2545,154 @@ namespace WindowsFormsApp1
                 return true;
             }
 
+            if (string.Equals(fullName, "Tekla.Structures.Drawing.Polyline", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
             string typeName = type != null ? type.Name : null;
-            return string.Equals(typeName, "Line", StringComparison.OrdinalIgnoreCase);
+            if (string.Equals(typeName, "Line", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return string.Equals(typeName, "Polyline", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsGuideLineObject(object drawingObject)
+        {
+            if (drawingObject == null)
+            {
+                return false;
+            }
+
+            if (HasGuideLineNamePrefix(drawingObject))
+            {
+                return true;
+            }
+
+            object attributes = GetPropertyValue(drawingObject, "Attributes");
+            if (HasGuideLineNamePrefix(attributes))
+            {
+                return true;
+            }
+
+            return MatchesGuideLineStyle(attributes);
+        }
+
+        private static bool HasGuideLineNamePrefix(object target)
+        {
+            if (target == null)
+            {
+                return false;
+            }
+
+            object rawName = GetPropertyValue(target, "Name");
+            string name = rawName != null ? rawName.ToString() : string.Empty;
+            return !string.IsNullOrWhiteSpace(name)
+                && name.StartsWith(GuideLineNamePrefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool MatchesGuideLineStyle(object attributes)
+        {
+            if (attributes == null)
+            {
+                return false;
+            }
+
+            object lineTypeAttributes = GetPropertyValue(attributes, "Line");
+            if (lineTypeAttributes == null)
+            {
+                return false;
+            }
+
+            int colorIndex;
+            if (!TryReadGuideLineColorIndex(lineTypeAttributes, out colorIndex))
+            {
+                return false;
+            }
+
+            if (colorIndex != GuideLineColor)
+            {
+                return false;
+            }
+
+            object lineTypeValue = GetPropertyValue(lineTypeAttributes, "Type")
+                ?? GetPropertyValue(lineTypeAttributes, "LineType");
+            if (lineTypeValue == null)
+            {
+                return false;
+            }
+
+            string lineTypeText = lineTypeValue.ToString();
+            return !string.IsNullOrWhiteSpace(lineTypeText)
+                && lineTypeText.IndexOf("dashed", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool TryReadGuideLineColorIndex(object lineTypeAttributes, out int colorIndex)
+        {
+            colorIndex = 0;
+            if (lineTypeAttributes == null)
+            {
+                return false;
+            }
+
+            object color = GetPropertyValue(lineTypeAttributes, "Color");
+            if (TryConvertColorObjectToInt(color, out colorIndex))
+            {
+                return true;
+            }
+
+            object trueColor = GetPropertyValue(lineTypeAttributes, "TrueColor");
+            return TryConvertColorObjectToInt(trueColor, out colorIndex);
+        }
+
+        private static bool TryConvertColorObjectToInt(object colorObject, out int colorIndex)
+        {
+            colorIndex = 0;
+            if (colorObject == null)
+            {
+                return false;
+            }
+
+            Type valueType = colorObject.GetType();
+            if (valueType.IsEnum)
+            {
+                colorIndex = Convert.ToInt32(colorObject);
+                return true;
+            }
+
+            if (colorObject is int)
+            {
+                colorIndex = (int)colorObject;
+                return true;
+            }
+
+            if (colorObject is short)
+            {
+                colorIndex = (short)colorObject;
+                return true;
+            }
+
+            if (colorObject is byte)
+            {
+                colorIndex = (byte)colorObject;
+                return true;
+            }
+
+            if (colorObject is long)
+            {
+                colorIndex = (int)(long)colorObject;
+                return true;
+            }
+
+            object nestedColor = GetPropertyValue(colorObject, "Color");
+            if (nestedColor != null && !ReferenceEquals(nestedColor, colorObject))
+            {
+                return TryConvertColorObjectToInt(nestedColor, out colorIndex);
+            }
+
+            return false;
         }
 
         private static bool ComputeExplodedOffsets(
