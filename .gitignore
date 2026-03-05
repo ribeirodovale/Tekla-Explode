@@ -1,0 +1,15 @@
+# Build artifacts
+**/bin/
+**/obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# VS Code local settings
+.vscode/*.log
+
+# OS files
+.DS_Store
+Thumbs.db
