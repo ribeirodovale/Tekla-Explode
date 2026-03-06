@@ -1726,7 +1726,8 @@ namespace WindowsFormsApp1
                 double explodedBoundsMaxY;
                 double yellowRectWidth = 0.0;
                 double yellowRectHeight = 0.0;
-                if (TryGetViewsUnionBounds(fitViews, out explodedBoundsMinX, out explodedBoundsMinY, out explodedBoundsMaxX, out explodedBoundsMaxY))
+                if (testEnabled
+                    && TryGetViewsUnionBounds(fitViews, out explodedBoundsMinX, out explodedBoundsMinY, out explodedBoundsMaxX, out explodedBoundsMaxY))
                 {
                     yellowRectWidth = Math.Max(0.0, (explodedBoundsMaxX - explodedBoundsMinX) + (2.0 * FitRectangleBorderPadding));
                     yellowRectHeight = Math.Max(0.0, (explodedBoundsMaxY - explodedBoundsMinY) + (2.0 * FitRectangleBorderPadding));
