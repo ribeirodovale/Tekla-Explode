@@ -1,8 +1,9 @@
-
+﻿
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Reflection;
 using System.Text;
@@ -50,21 +51,52 @@ namespace WindowsFormsApp1
         private const double FitRectangleBorderPadding = 3.0;
         private const double FitScaleFactorMin = 0.20;
         private const double FitScaleFactorMax = 4.00;
+        private const int CollapsedClientHeight = 336;
+        private const int ExpandedClientHeight = 520;
+
+        private bool logExpanded;
 
         public Form1()
         {
             InitializeComponent();
+            ConfigureStatusIndicators();
+            SetLogExpanded(false);
+        }
+
+        private void Form1_Shown(object sender, EventArgs e)
+        {
+            RefreshTeklaStatus(false);
+            RefreshDrawingStatus(false);
+        }
+
+        private void btnToggleLog_Click(object sender, EventArgs e)
+        {
+            SetLogExpanded(!logExpanded);
         }
 
         private void btnVerificarTekla_Click(object sender, EventArgs e)
+        {
+            RefreshTeklaStatus(true);
+        }
+
+        private void btnVerificarDesenho_Click(object sender, EventArgs e)
+        {
+            RefreshDrawingStatus(true);
+        }
+
+        private void RefreshTeklaStatus(bool updateOutput)
         {
             try
             {
                 Type modelType = ResolveTeklaModelType();
                 if (modelType == null)
                 {
-                    UpdateStatus("Falha: API do Tekla nao encontrada.", Color.DarkRed);
-                    SetOutput("Nao foi possivel carregar Tekla.Structures.Model.Model.");
+                    SetIndicatorColor(pnlTeklaIndicator, Color.IndianRed);
+                    if (updateOutput)
+                    {
+                        UpdateStatus("Falha: API do Tekla nao encontrada.", Color.DarkRed);
+                        SetOutput("Nao foi possivel carregar Tekla.Structures.Model.Model.");
+                    }
                     return;
                 }
 
@@ -72,76 +104,115 @@ namespace WindowsFormsApp1
                 bool? connected = InvokeBoolMethod(modelInstance, "GetConnectionStatus");
                 if (!connected.HasValue)
                 {
-                    UpdateStatus("Falha: metodo GetConnectionStatus indisponivel.", Color.DarkRed);
-                    SetOutput("Nao foi possivel ler o status da conexao de modelo.");
+                    SetIndicatorColor(pnlTeklaIndicator, Color.IndianRed);
+                    if (updateOutput)
+                    {
+                        UpdateStatus("Falha: metodo GetConnectionStatus indisponivel.", Color.DarkRed);
+                        SetOutput("Nao foi possivel ler o status da conexao de modelo.");
+                    }
                     return;
                 }
 
                 if (connected.Value)
                 {
-                    UpdateStatus("Sucesso: comunicacao com Tekla estabelecida.", Color.DarkGreen);
+                    SetIndicatorColor(pnlTeklaIndicator, Color.ForestGreen);
+                    if (updateOutput)
+                    {
+                        UpdateStatus("Sucesso: comunicacao com Tekla estabelecida.", Color.DarkGreen);
+                    }
                 }
                 else
                 {
-                    UpdateStatus("Falha: Tekla aberto, mas sem conexao com o modelo.", Color.DarkOrange);
+                    SetIndicatorColor(pnlTeklaIndicator, Color.DarkOrange);
+                    if (updateOutput)
+                    {
+                        UpdateStatus("Falha: Tekla aberto, mas sem conexao com o modelo.", Color.DarkOrange);
+                    }
                 }
 
-                StringBuilder report = new StringBuilder();
-                report.AppendLine("Conexao com modelo Tekla");
-                report.AppendLine("------------------------");
-                report.AppendLine("Tipo carregado: " + modelType.FullName);
-                report.AppendLine("GetConnectionStatus: " + (connected.Value ? "True" : "False"));
-                SetOutput(report.ToString());
+                if (updateOutput)
+                {
+                    StringBuilder report = new StringBuilder();
+                    report.AppendLine("Conexao com modelo Tekla");
+                    report.AppendLine("------------------------");
+                    report.AppendLine("Tipo carregado: " + modelType.FullName);
+                    report.AppendLine("GetConnectionStatus: " + (connected.Value ? "True" : "False"));
+                    SetOutput(report.ToString());
+                }
             }
             catch (Exception ex)
             {
-                UpdateStatus("Erro ao comunicar com Tekla: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
+                SetIndicatorColor(pnlTeklaIndicator, Color.IndianRed);
+                if (updateOutput)
+                {
+                    UpdateStatus("Erro ao comunicar com Tekla: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
+                }
             }
         }
 
-        private void btnVerificarDesenho_Click(object sender, EventArgs e)
+        private void RefreshDrawingStatus(bool updateOutput)
         {
             try
             {
                 object drawingHandler = CreateDrawingHandler();
                 if (drawingHandler == null)
                 {
-                    UpdateStatus("Falha: API de drawing do Tekla nao encontrada.", Color.DarkRed);
-                    SetOutput("Nao foi possivel carregar Tekla.Structures.Drawing.DrawingHandler.");
+                    SetIndicatorColor(pnlDrawingIndicator, Color.IndianRed);
+                    if (updateOutput)
+                    {
+                        UpdateStatus("Falha: API de drawing do Tekla nao encontrada.", Color.DarkRed);
+                        SetOutput("Nao foi possivel carregar Tekla.Structures.Drawing.DrawingHandler.");
+                    }
                     return;
                 }
 
                 bool? drawingConnection = InvokeBoolMethod(drawingHandler, "GetConnectionStatus");
                 if (drawingConnection.HasValue && !drawingConnection.Value)
                 {
-                    UpdateStatus("Falha: sem conexao com Drawing API.", Color.DarkOrange);
-                    SetOutput("DrawingHandler.GetConnectionStatus retornou False.");
+                    SetIndicatorColor(pnlDrawingIndicator, Color.DarkOrange);
+                    if (updateOutput)
+                    {
+                        UpdateStatus("Falha: sem conexao com Drawing API.", Color.DarkOrange);
+                        SetOutput("DrawingHandler.GetConnectionStatus retornou False.");
+                    }
                     return;
                 }
 
                 object activeDrawing = InvokeParameterlessMethod(drawingHandler, "GetActiveDrawing");
                 if (activeDrawing == null)
                 {
-                    UpdateStatus("Falha: nenhum desenho aberto no Tekla.", Color.DarkOrange);
-                    SetOutput("Nenhum desenho ativo encontrado no Tekla.");
+                    SetIndicatorColor(pnlDrawingIndicator, Color.DarkOrange);
+                    if (updateOutput)
+                    {
+                        UpdateStatus("Falha: nenhum desenho aberto no Tekla.", Color.DarkOrange);
+                        SetOutput("Nenhum desenho ativo encontrado no Tekla.");
+                    }
                     return;
                 }
 
-                StringBuilder report = new StringBuilder();
-                report.AppendLine("Conexao Drawing API: " + BoolToText(drawingConnection));
-                report.AppendLine();
-                report.AppendLine(
-                    BuildObjectData(
-                        activeDrawing,
-                        "Desenho ativo",
-                        new[] { "Name", "Mark", "Title1", "Title2", "Title3", "UpToDateStatus", "Identifier" }));
+                SetIndicatorColor(pnlDrawingIndicator, Color.ForestGreen);
+                if (updateOutput)
+                {
+                    StringBuilder report = new StringBuilder();
+                    report.AppendLine("Conexao Drawing API: " + BoolToText(drawingConnection));
+                    report.AppendLine();
+                    report.AppendLine(
+                        BuildObjectData(
+                            activeDrawing,
+                            "Desenho ativo",
+                            new[] { "Name", "Mark", "Title1", "Title2", "Title3", "UpToDateStatus", "Identifier" }));
 
-                SetOutput(report.ToString());
-                UpdateStatus("Sucesso: desenho aberto encontrado.", Color.DarkGreen);
+                    SetOutput(report.ToString());
+                    UpdateStatus("Sucesso: desenho aberto encontrado.", Color.DarkGreen);
+                }
             }
             catch (Exception ex)
             {
-                UpdateStatus("Erro ao ler desenho: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
+                SetIndicatorColor(pnlDrawingIndicator, Color.IndianRed);
+                if (updateOutput)
+                {
+                    UpdateStatus("Erro ao ler desenho: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
+                }
             }
         }
 
@@ -518,6 +589,7 @@ namespace WindowsFormsApp1
                     created++;
                 }
 
+                CommitActiveDrawingChanges(activeDrawing);
                 InvokeParameterlessMethod(drawingHandler, "SaveActiveDrawing");
 
                 StringBuilder report = new StringBuilder();
@@ -987,6 +1059,7 @@ namespace WindowsFormsApp1
                     created++;
                 }
 
+                CommitActiveDrawingChanges(activeDrawing);
                 InvokeParameterlessMethod(drawingHandler, "SaveActiveDrawing");
 
                 StringBuilder report = new StringBuilder();
@@ -1056,38 +1129,44 @@ namespace WindowsFormsApp1
             CriarVistaExplodidaEmArea(true);
         }
 
+        private static string BuildSelectedAxesText(bool usePlaneXY, bool usePlaneXZ, bool usePlaneZY)
+        {
+            StringBuilder axes = new StringBuilder();
+            if (usePlaneZY)
+            {
+                axes.Append("X ");
+            }
+
+            if (usePlaneXZ)
+            {
+                axes.Append("Y ");
+            }
+
+            if (usePlaneXY)
+            {
+                axes.Append("Z ");
+            }
+
+            return axes.ToString().Trim();
+        }
+
         private void CriarVistaExplodidaEmArea(bool useSelectedArea)
         {
             bool usePlaneXY = chkPlanoXY.Checked;
             bool usePlaneXZ = chkPlanoXZ.Checked;
             bool usePlaneZY = chkPlanoZY.Checked;
-            bool ghostLineEnabled = chkGhostLinhas.Checked;
+            bool ghostEnabled = chkGhostLinhas.Checked;
+            bool guideLinesEnabled = chkLinhas.Checked;
             bool colorirEnabled = chkColorir.Checked;
 
             if (!usePlaneXY && !usePlaneXZ && !usePlaneZY)
             {
-                UpdateStatus("Falha: selecione pelo menos um plano (xy/xz/zy).", Color.DarkOrange);
-                SetOutput("Marque ao menos um checkbox de plano antes de criar a vista ajustada.");
+                UpdateStatus("Falha: selecione pelo menos um eixo (X/Y/Z).", Color.DarkOrange);
+                SetOutput("Marque ao menos um checkbox de eixo antes de criar a vista ajustada.");
                 return;
             }
 
-            string selectedPlanes = string.Empty;
-            if (usePlaneXY)
-            {
-                selectedPlanes += "xy ";
-            }
-
-            if (usePlaneXZ)
-            {
-                selectedPlanes += "xz ";
-            }
-
-            if (usePlaneZY)
-            {
-                selectedPlanes += "zy ";
-            }
-
-            selectedPlanes = selectedPlanes.Trim();
+            string selectedAxes = BuildSelectedAxesText(usePlaneXY, usePlaneXZ, usePlaneZY);
 
             try
             {
@@ -1198,7 +1277,7 @@ namespace WindowsFormsApp1
                 int candidateCount = partPlans.Count;
                 bool truncated = false;
                 int maxPartsAllowed = MaxExplodedViews;
-                if (ghostLineEnabled)
+                if (ghostEnabled)
                 {
                     maxPartsAllowed = Math.Max(1, (MaxExplodedViews + 1) / 2);
                 }
@@ -1258,10 +1337,10 @@ namespace WindowsFormsApp1
                 double layoutMaxX;
                 double layoutMaxY;
                 if (!TryGetPlannedLayoutBounds(
-                        partPlans,
-                        ghostLineEnabled,
-                        1.0,
-                        out layoutMinX,
+                    partPlans,
+                    ghostEnabled,
+                    1.0,
+                    out layoutMinX,
                         out layoutMinY,
                         out layoutMaxX,
                         out layoutMaxY))
@@ -1280,7 +1359,7 @@ namespace WindowsFormsApp1
                 double fittedLayoutHeight;
                 bool fitComputed = TryComputeFitIntoRectangle(
                     partPlans,
-                    ghostLineEnabled,
+                    ghostEnabled,
                     rectMinX,
                     rectMinY,
                     rectMaxX,
@@ -1344,7 +1423,7 @@ namespace WindowsFormsApp1
                 {
                     ExplodedPartPlan plan = partPlans[i];
 
-                    if (ghostLineEnabled && !plan.IsMainPart)
+                    if (ghostEnabled && !plan.IsMainPart)
                     {
                         ghostPairsRequested++;
 
@@ -1359,7 +1438,6 @@ namespace WindowsFormsApp1
                             out originalAutoIsoApplied);
                         viewSequence++;
 
-                        bool originalCreated = false;
                         if (originalView != null)
                         {
                             if (RotateExplodedToIsometric && !originalAutoIsoApplied)
@@ -1396,7 +1474,6 @@ namespace WindowsFormsApp1
                                 created++;
                                 ghostOriginalCreated++;
                                 fitViews.Add(originalView);
-                                originalCreated = true;
                             }
                             else
                             {
@@ -1467,23 +1544,25 @@ namespace WindowsFormsApp1
                             failed++;
                         }
 
-                        guideLinesRequested++;
-                        if (originalCreated
-                            && explodedCreated
-                            && TryCreateGuideLine(
-                                sheet,
-                                anchorX + plan.OriginalOffsetX,
-                                anchorY + plan.OriginalOffsetY,
-                                anchorZ,
-                                anchorX + plan.OffsetX,
-                                anchorY + plan.OffsetY,
-                                anchorZ))
+                        if (guideLinesEnabled)
                         {
-                            guideLinesCreated++;
-                        }
-                        else
-                        {
-                            guideLinesFailed++;
+                            guideLinesRequested++;
+                            if (explodedCreated
+                                && TryCreateGuideLine(
+                                    sheet,
+                                    anchorX + plan.OriginalOffsetX,
+                                    anchorY + plan.OriginalOffsetY,
+                                    anchorZ,
+                                    anchorX + plan.OffsetX,
+                                    anchorY + plan.OffsetY,
+                                    anchorZ))
+                            {
+                                guideLinesCreated++;
+                            }
+                            else
+                            {
+                                guideLinesFailed++;
+                            }
                         }
 
                         continue;
@@ -1545,6 +1624,26 @@ namespace WindowsFormsApp1
 
                     created++;
                     fitViews.Add(newView);
+
+                    if (guideLinesEnabled && !plan.IsMainPart)
+                    {
+                        guideLinesRequested++;
+                        if (TryCreateGuideLine(
+                                sheet,
+                                anchorX + plan.OriginalOffsetX,
+                                anchorY + plan.OriginalOffsetY,
+                                anchorZ,
+                                anchorX + plan.OffsetX,
+                                anchorY + plan.OffsetY,
+                                anchorZ))
+                        {
+                            guideLinesCreated++;
+                        }
+                        else
+                        {
+                            guideLinesFailed++;
+                        }
+                    }
                 }
 
                 bool fitRectangleCreated = false;
@@ -1567,6 +1666,7 @@ namespace WindowsFormsApp1
                         anchorZ);
                 }
 
+                CommitActiveDrawingChanges(activeDrawing);
                 InvokeParameterlessMethod(drawingHandler, "SaveActiveDrawing");
 
                 double rectWidth = Math.Abs(rectMaxX - rectMinX);
@@ -1577,8 +1677,9 @@ namespace WindowsFormsApp1
                     ? "Vista explodida em area definida"
                     : "Vista explodida em folha inteira");
                 report.AppendLine("--------------------------------");
-                report.AppendLine("Planos ativos: " + selectedPlanes);
-                report.AppendLine("Ghost + linha: " + (ghostLineEnabled ? "ligado" : "desligado"));
+                report.AppendLine("Eixos ativos: " + selectedAxes);
+                report.AppendLine("Ghost: " + (ghostEnabled ? "ligado" : "desligado"));
+                report.AppendLine("Linhas: " + (guideLinesEnabled ? "ligado" : "desligado"));
                 report.AppendLine("Colorir: " + (colorirEnabled ? "ligado" : "desligado"));
                 report.AppendLine("Modo: " + targetAreaSource);
                 report.AppendLine("Area alvo usada: " + targetAreaSource);
@@ -1613,11 +1714,15 @@ namespace WindowsFormsApp1
                 report.AppendLine("Rotacao isometrica de fallback: " + fallbackRotationCount);
                 report.AppendLine("Cor de contorno aplicada: " + contourColoredCount);
                 report.AppendLine("Sem mudanca de cor: " + contourNotChangedCount);
-                if (ghostLineEnabled)
+                if (ghostEnabled)
                 {
                     report.AppendLine("Ghost pares secundarios: " + ghostPairsRequested);
                     report.AppendLine("Ghost vistas originais criadas: " + ghostOriginalCreated);
                     report.AppendLine("Ghost vistas deslocadas criadas: " + ghostExplodedCreated);
+                }
+
+                if (guideLinesEnabled)
+                {
                     report.AppendLine("Linhas guia solicitadas: " + guideLinesRequested);
                     report.AppendLine("Linhas guia criadas: " + guideLinesCreated);
                     report.AppendLine("Linhas guia falhas: " + guideLinesFailed);
@@ -2528,8 +2633,9 @@ namespace WindowsFormsApp1
 
         private void UpdateStatus(string message, Color color)
         {
-            lblStatusTekla.Text = "Status: " + message;
+            lblStatusTekla.Text = message ?? string.Empty;
             lblStatusTekla.ForeColor = color;
+            lblStatusTekla.Visible = !string.IsNullOrWhiteSpace(message);
         }
 
         private static void CommitActiveDrawingChanges(object activeDrawing)
@@ -2543,6 +2649,69 @@ namespace WindowsFormsApp1
         private void SetOutput(string text)
         {
             txtSaida.Text = text ?? string.Empty;
+        }
+
+        private void ConfigureStatusIndicators()
+        {
+            ConfigureStatusIndicator(pnlTeklaIndicator);
+            ConfigureStatusIndicator(pnlDrawingIndicator);
+            SetIndicatorColor(pnlTeklaIndicator, Color.Silver);
+            SetIndicatorColor(pnlDrawingIndicator, Color.Silver);
+        }
+
+        private void ConfigureStatusIndicator(Panel indicator)
+        {
+            if (indicator == null)
+            {
+                return;
+            }
+
+            ApplyCircularRegion(indicator);
+            indicator.Resize += StatusIndicator_Resize;
+        }
+
+        private void StatusIndicator_Resize(object sender, EventArgs e)
+        {
+            Panel indicator = sender as Panel;
+            if (indicator != null)
+            {
+                ApplyCircularRegion(indicator);
+            }
+        }
+
+        private static void ApplyCircularRegion(Control control)
+        {
+            if (control == null || control.Width <= 0 || control.Height <= 0)
+            {
+                return;
+            }
+
+            GraphicsPath path = new GraphicsPath();
+            path.AddEllipse(0, 0, control.Width - 1, control.Height - 1);
+            Region oldRegion = control.Region;
+            control.Region = new Region(path);
+            if (oldRegion != null)
+            {
+                oldRegion.Dispose();
+            }
+
+            path.Dispose();
+        }
+
+        private static void SetIndicatorColor(Panel indicator, Color color)
+        {
+            if (indicator != null)
+            {
+                indicator.BackColor = color;
+            }
+        }
+
+        private void SetLogExpanded(bool expanded)
+        {
+            logExpanded = expanded;
+            pnlLog.Visible = expanded;
+            btnToggleLog.Text = expanded ? "- Ocultar log" : "+ Mostrar log";
+            ClientSize = new Size(ClientSize.Width, expanded ? ExpandedClientHeight : CollapsedClientHeight);
         }
 
         private static object CreateDrawingHandler()
@@ -5974,7 +6143,7 @@ namespace WindowsFormsApp1
             if (viewAttributes != null)
             {
                 // Neste fluxo carregamos o perfil para manter a formatacao visual e,
-                // em seguida, forçamos a escala de fit.
+                // em seguida, forÃ§amos a escala de fit.
                 autoIsoApplied = TryLoadAttributesByName(viewAttributes, ExplodedViewAttributeFile);
                 if (!autoIsoApplied)
                 {
@@ -6486,4 +6655,5 @@ namespace WindowsFormsApp1
         }
     }
 }
+
 
