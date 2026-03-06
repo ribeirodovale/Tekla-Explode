@@ -1053,6 +1053,7 @@ namespace WindowsFormsApp1
             bool usePlaneZY = chkPlanoZY.Checked;
             bool ghostLineEnabled = chkGhostLinhas.Checked;
             bool colorirEnabled = chkColorir.Checked;
+            bool resizeEnabled = chkResize.Checked;
 
             if (!usePlaneXY && !usePlaneXZ && !usePlaneZY)
             {
@@ -1109,19 +1110,37 @@ namespace WindowsFormsApp1
                 double rectMinY;
                 double rectMaxX;
                 double rectMaxY;
-                int selectedObjectCount;
-                int boundedSelectedCount;
-                if (!TryGetSelectedPlacementRectangle(
+                int selectedObjectCount = 0;
+                int boundedSelectedCount = 0;
+                string targetAreaSource = resizeEnabled ? "retangulo selecionado" : "folha inteira";
+                bool hasTargetRectangle = resizeEnabled
+                    ? TryGetSelectedPlacementRectangle(
                         drawingHandler,
                         out rectMinX,
                         out rectMinY,
                         out rectMaxX,
                         out rectMaxY,
                         out selectedObjectCount,
-                        out boundedSelectedCount))
+                        out boundedSelectedCount)
+                    : TryGetSheetPlacementRectangle(
+                        sheet,
+                        out rectMinX,
+                        out rectMinY,
+                        out rectMaxX,
+                        out rectMaxY);
+
+                if (!hasTargetRectangle)
                 {
-                    UpdateStatus("Falha: retangulo selecionado nao encontrado.", Color.DarkOrange);
-                    SetOutput("Selecione o retangulo de area (ou objetos que o delimitem) e clique novamente.");
+                    if (resizeEnabled)
+                    {
+                        UpdateStatus("Falha: retangulo selecionado nao encontrado.", Color.DarkOrange);
+                        SetOutput("Selecione o retangulo de area (ou objetos que o delimitem) e clique novamente.");
+                    }
+                    else
+                    {
+                        UpdateStatus("Falha: nao foi possivel ler a area da folha.", Color.DarkOrange);
+                        SetOutput("Nao foi possivel obter os limites da folha para usar o desenho completo.");
+                    }
                     return;
                 }
 
@@ -1248,6 +1267,7 @@ namespace WindowsFormsApp1
                     rectMinY,
                     rectMaxX,
                     rectMaxY,
+                    !resizeEnabled,
                     out fitScaleFactor,
                     out anchorX,
                     out anchorY,
@@ -1540,6 +1560,8 @@ namespace WindowsFormsApp1
                 report.AppendLine("Planos ativos: " + selectedPlanes);
                 report.AppendLine("Ghost + linha: " + (ghostLineEnabled ? "ligado" : "desligado"));
                 report.AppendLine("Colorir: " + (colorirEnabled ? "ligado" : "desligado"));
+                report.AppendLine("Usar retangulo: " + (resizeEnabled ? "ligado" : "desligado"));
+                report.AppendLine("Area alvo usada: " + targetAreaSource);
                 report.AppendLine("Objetos selecionados no desenho: " + selectedObjectCount);
                 report.AppendLine("Objetos usados para retangulo: " + boundedSelectedCount);
                 report.AppendLine("Retangulo selecionado: W=" + rectWidth.ToString("0.###") + " H=" + rectHeight.ToString("0.###"));
@@ -1789,22 +1811,22 @@ namespace WindowsFormsApp1
             string rectangleName = FitRectangleNamePrefix + Guid.NewGuid().ToString("N");
             int created = 0;
 
-            if (TryCreateNamedLine(viewBase, minX, minY, z, maxX, minY, z, rectangleName + "_01", FitRectangleColor, false))
+            if (TryCreateNamedLine(viewBase, minX, minY, z, maxX, minY, z, rectangleName + "_01", GuideLineColor, true))
             {
                 created++;
             }
 
-            if (TryCreateNamedLine(viewBase, maxX, minY, z, maxX, maxY, z, rectangleName + "_02", FitRectangleColor, false))
+            if (TryCreateNamedLine(viewBase, maxX, minY, z, maxX, maxY, z, rectangleName + "_02", GuideLineColor, true))
             {
                 created++;
             }
 
-            if (TryCreateNamedLine(viewBase, maxX, maxY, z, minX, maxY, z, rectangleName + "_03", FitRectangleColor, false))
+            if (TryCreateNamedLine(viewBase, maxX, maxY, z, minX, maxY, z, rectangleName + "_03", GuideLineColor, true))
             {
                 created++;
             }
 
-            if (TryCreateNamedLine(viewBase, minX, maxY, z, minX, minY, z, rectangleName + "_04", FitRectangleColor, false))
+            if (TryCreateNamedLine(viewBase, minX, maxY, z, minX, minY, z, rectangleName + "_04", GuideLineColor, true))
             {
                 created++;
             }
@@ -2879,6 +2901,67 @@ namespace WindowsFormsApp1
             return width > 1e-6 && height > 1e-6;
         }
 
+        private static bool TryGetSheetPlacementRectangle(
+            object sheet,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+
+            if (sheet == null)
+            {
+                return false;
+            }
+
+            if (TryGetKnownPointPairBounds2D(sheet, out minX, out minY, out maxX, out maxY))
+            {
+                return true;
+            }
+
+            if (TryGetDrawingObjectBounds2D(sheet, out minX, out minY, out maxX, out maxY))
+            {
+                return true;
+            }
+
+            object origin = GetPropertyValue(sheet, "Origin") ?? GetPropertyValue(sheet, "InsertionPoint");
+            double originX;
+            double originY;
+            double originZ;
+            if (!TryGetXYZ(origin, out originX, out originY, out originZ))
+            {
+                originX = 0.0;
+                originY = 0.0;
+            }
+
+            double width = ReadDoubleProperty(sheet, "Width", 0.0);
+            if (!(width > 1e-6))
+            {
+                width = ReadDoubleProperty(sheet, "PaperWidth", 0.0);
+            }
+
+            double height = ReadDoubleProperty(sheet, "Height", 0.0);
+            if (!(height > 1e-6))
+            {
+                height = ReadDoubleProperty(sheet, "PaperHeight", 0.0);
+            }
+
+            if (!(width > 1e-6) || !(height > 1e-6))
+            {
+                return false;
+            }
+
+            minX = originX;
+            minY = originY;
+            maxX = originX + width;
+            maxY = originY + height;
+            return true;
+        }
+
         private static bool TryGetExactSelectionBounds2D(
             object drawingObject,
             out double minX,
@@ -3331,6 +3414,7 @@ namespace WindowsFormsApp1
             double rectMinY,
             double rectMaxX,
             double rectMaxY,
+            bool allowGrowth,
             out double fitScaleFactor,
             out double anchorX,
             out double anchorY,
@@ -3372,9 +3456,11 @@ namespace WindowsFormsApp1
                 rawFactor = 1.0;
             }
 
-            // For fit-to-rectangle we only shrink or keep the original scale.
-            // Allowing the estimate to enlarge is too optimistic and causes overflow.
-            rawFactor = Math.Min(1.0, rawFactor);
+            if (!allowGrowth)
+            {
+                rawFactor = Math.Min(1.0, rawFactor);
+            }
+
             fitScaleFactor = Math.Max(FitScaleFactorMin, Math.Min(FitScaleFactorMax, rawFactor));
 
             double layoutCenterBaseX = (baseMinX + baseMaxX) * 0.5;
@@ -4190,7 +4276,7 @@ namespace WindowsFormsApp1
                 return true;
             }
 
-            return MatchesGuideLineStyle(attributes);
+            return MatchesGuideLineStyle(attributes) || MatchesLegacyFitRectangleStyle(attributes);
         }
 
         private static bool HasGuideLineNamePrefix(object target)
@@ -4241,6 +4327,28 @@ namespace WindowsFormsApp1
             string lineTypeText = lineTypeValue.ToString();
             return !string.IsNullOrWhiteSpace(lineTypeText)
                 && lineTypeText.IndexOf("dashed", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool MatchesLegacyFitRectangleStyle(object attributes)
+        {
+            if (attributes == null)
+            {
+                return false;
+            }
+
+            object lineTypeAttributes = GetPropertyValue(attributes, "Line");
+            if (lineTypeAttributes == null)
+            {
+                return false;
+            }
+
+            int colorIndex;
+            if (!TryReadGuideLineColorIndex(lineTypeAttributes, out colorIndex))
+            {
+                return false;
+            }
+
+            return colorIndex == FitRectangleColor;
         }
 
         private static bool TryReadGuideLineColorIndex(object lineTypeAttributes, out int colorIndex)

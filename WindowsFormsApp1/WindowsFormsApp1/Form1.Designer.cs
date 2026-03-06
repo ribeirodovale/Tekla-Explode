@@ -41,6 +41,7 @@
             this.chkPlanoZY = new System.Windows.Forms.CheckBox();
             this.chkGhostLinhas = new System.Windows.Forms.CheckBox();
             this.chkColorir = new System.Windows.Forms.CheckBox();
+            this.chkResize = new System.Windows.Forms.CheckBox();
             this.lblStatusTekla = new System.Windows.Forms.Label();
             this.txtSaida = new System.Windows.Forms.TextBox();
             this.SuspendLayout();
@@ -169,13 +170,25 @@
             this.chkColorir.Text = "Colorir";
             this.chkColorir.UseVisualStyleBackColor = true;
             // 
+            // chkResize
+            // 
+            this.chkResize.AutoSize = true;
+            this.chkResize.Checked = true;
+            this.chkResize.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkResize.Location = new System.Drawing.Point(421, 79);
+            this.chkResize.Name = "chkResize";
+            this.chkResize.Size = new System.Drawing.Size(117, 20);
+            this.chkResize.TabIndex = 12;
+            this.chkResize.Text = "Usar retangulo";
+            this.chkResize.UseVisualStyleBackColor = true;
+            // 
             // lblStatusTekla
             // 
             this.lblStatusTekla.AutoSize = true;
             this.lblStatusTekla.Location = new System.Drawing.Point(23, 114);
             this.lblStatusTekla.Name = "lblStatusTekla";
             this.lblStatusTekla.Size = new System.Drawing.Size(85, 16);
-            this.lblStatusTekla.TabIndex = 12;
+            this.lblStatusTekla.TabIndex = 13;
             this.lblStatusTekla.Text = "Status: N/D";
             // 
             // txtSaida
@@ -186,7 +199,7 @@
             this.txtSaida.ReadOnly = true;
             this.txtSaida.ScrollBars = System.Windows.Forms.ScrollBars.Both;
             this.txtSaida.Size = new System.Drawing.Size(904, 388);
-            this.txtSaida.TabIndex = 13;
+            this.txtSaida.TabIndex = 14;
             this.txtSaida.WordWrap = false;
             // 
             // Form1
@@ -195,6 +208,7 @@
             this.ClientSize = new System.Drawing.Size(960, 560);
             this.Controls.Add(this.txtSaida);
             this.Controls.Add(this.lblStatusTekla);
+            this.Controls.Add(this.chkResize);
             this.Controls.Add(this.chkColorir);
             this.Controls.Add(this.chkGhostLinhas);
             this.Controls.Add(this.chkPlanoZY);
@@ -226,6 +240,7 @@
         private System.Windows.Forms.CheckBox chkPlanoZY;
         private System.Windows.Forms.CheckBox chkGhostLinhas;
         private System.Windows.Forms.CheckBox chkColorir;
+        private System.Windows.Forms.CheckBox chkResize;
         private System.Windows.Forms.Label lblStatusTekla;
         private System.Windows.Forms.TextBox txtSaida;
     }
