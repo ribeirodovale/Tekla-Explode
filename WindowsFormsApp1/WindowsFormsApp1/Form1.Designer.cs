@@ -35,6 +35,7 @@
             this.btnGerarVistaExplodida = new System.Windows.Forms.Button();
             this.btnLimparVistaExplodida = new System.Windows.Forms.Button();
             this.btnExplodirPorPlanos = new System.Windows.Forms.Button();
+            this.btnExplodirNoRetangulo = new System.Windows.Forms.Button();
             this.chkPlanoXY = new System.Windows.Forms.CheckBox();
             this.chkPlanoXZ = new System.Windows.Forms.CheckBox();
             this.chkPlanoZY = new System.Windows.Forms.CheckBox();
@@ -104,6 +105,16 @@
             this.btnExplodirPorPlanos.UseVisualStyleBackColor = true;
             this.btnExplodirPorPlanos.Click += new System.EventHandler(this.btnExplodirPorPlanos_Click);
             // 
+            // btnExplodirNoRetangulo
+            // 
+            this.btnExplodirNoRetangulo.Location = new System.Drawing.Point(541, 108);
+            this.btnExplodirNoRetangulo.Name = "btnExplodirNoRetangulo";
+            this.btnExplodirNoRetangulo.Size = new System.Drawing.Size(389, 28);
+            this.btnExplodirNoRetangulo.TabIndex = 6;
+            this.btnExplodirNoRetangulo.Text = "Explodir isometrica dentro do retangulo selecionado";
+            this.btnExplodirNoRetangulo.UseVisualStyleBackColor = true;
+            this.btnExplodirNoRetangulo.Click += new System.EventHandler(this.btnExplodirNoRetangulo_Click);
+            // 
             // chkPlanoXY
             // 
             this.chkPlanoXY.AutoSize = true;
@@ -112,7 +123,7 @@
             this.chkPlanoXY.Location = new System.Drawing.Point(26, 79);
             this.chkPlanoXY.Name = "chkPlanoXY";
             this.chkPlanoXY.Size = new System.Drawing.Size(44, 20);
-            this.chkPlanoXY.TabIndex = 6;
+            this.chkPlanoXY.TabIndex = 7;
             this.chkPlanoXY.Text = "xy";
             this.chkPlanoXY.UseVisualStyleBackColor = true;
             // 
@@ -122,7 +133,7 @@
             this.chkPlanoXZ.Location = new System.Drawing.Point(86, 79);
             this.chkPlanoXZ.Name = "chkPlanoXZ";
             this.chkPlanoXZ.Size = new System.Drawing.Size(44, 20);
-            this.chkPlanoXZ.TabIndex = 7;
+            this.chkPlanoXZ.TabIndex = 8;
             this.chkPlanoXZ.Text = "xz";
             this.chkPlanoXZ.UseVisualStyleBackColor = true;
             // 
@@ -132,7 +143,7 @@
             this.chkPlanoZY.Location = new System.Drawing.Point(146, 79);
             this.chkPlanoZY.Name = "chkPlanoZY";
             this.chkPlanoZY.Size = new System.Drawing.Size(43, 20);
-            this.chkPlanoZY.TabIndex = 8;
+            this.chkPlanoZY.TabIndex = 9;
             this.chkPlanoZY.Text = "zy";
             this.chkPlanoZY.UseVisualStyleBackColor = true;
             // 
@@ -144,7 +155,7 @@
             this.chkGhostLinhas.Location = new System.Drawing.Point(206, 79);
             this.chkGhostLinhas.Name = "chkGhostLinhas";
             this.chkGhostLinhas.Size = new System.Drawing.Size(115, 20);
-            this.chkGhostLinhas.TabIndex = 9;
+            this.chkGhostLinhas.TabIndex = 10;
             this.chkGhostLinhas.Text = "Ghost + linha";
             this.chkGhostLinhas.UseVisualStyleBackColor = true;
             // 
@@ -154,7 +165,7 @@
             this.chkColorir.Location = new System.Drawing.Point(337, 79);
             this.chkColorir.Name = "chkColorir";
             this.chkColorir.Size = new System.Drawing.Size(68, 20);
-            this.chkColorir.TabIndex = 10;
+            this.chkColorir.TabIndex = 11;
             this.chkColorir.Text = "Colorir";
             this.chkColorir.UseVisualStyleBackColor = true;
             // 
@@ -164,7 +175,7 @@
             this.lblStatusTekla.Location = new System.Drawing.Point(23, 114);
             this.lblStatusTekla.Name = "lblStatusTekla";
             this.lblStatusTekla.Size = new System.Drawing.Size(85, 16);
-            this.lblStatusTekla.TabIndex = 11;
+            this.lblStatusTekla.TabIndex = 12;
             this.lblStatusTekla.Text = "Status: N/D";
             // 
             // txtSaida
@@ -175,7 +186,7 @@
             this.txtSaida.ReadOnly = true;
             this.txtSaida.ScrollBars = System.Windows.Forms.ScrollBars.Both;
             this.txtSaida.Size = new System.Drawing.Size(904, 388);
-            this.txtSaida.TabIndex = 12;
+            this.txtSaida.TabIndex = 13;
             this.txtSaida.WordWrap = false;
             // 
             // Form1
@@ -189,6 +200,7 @@
             this.Controls.Add(this.chkPlanoZY);
             this.Controls.Add(this.chkPlanoXZ);
             this.Controls.Add(this.chkPlanoXY);
+            this.Controls.Add(this.btnExplodirNoRetangulo);
             this.Controls.Add(this.btnExplodirPorPlanos);
             this.Controls.Add(this.btnLimparVistaExplodida);
             this.Controls.Add(this.btnGerarVistaExplodida);
@@ -208,6 +220,7 @@
         private System.Windows.Forms.Button btnGerarVistaExplodida;
         private System.Windows.Forms.Button btnLimparVistaExplodida;
         private System.Windows.Forms.Button btnExplodirPorPlanos;
+        private System.Windows.Forms.Button btnExplodirNoRetangulo;
         private System.Windows.Forms.CheckBox chkPlanoXY;
         private System.Windows.Forms.CheckBox chkPlanoXZ;
         private System.Windows.Forms.CheckBox chkPlanoZY;

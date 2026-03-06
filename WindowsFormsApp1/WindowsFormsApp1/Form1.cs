@@ -44,6 +44,12 @@ namespace WindowsFormsApp1
         private const int OtherPlaneContourColor = 160; // DrawingColors.Red
         private const string GuideLineNamePrefix = "EXP_AUTO_GUIDE_";
         private const int GuideLineColor = 160; // DrawingColors.Red
+        private const string FitRectangleNamePrefix = "EXP_AUTO_RECT_";
+        private const int FitRectangleColor = 164; // DrawingColors.Yellow
+        private const double FitRectanglePadding = 8.0;
+        private const double FitRectangleBorderPadding = 3.0;
+        private const double FitScaleFactorMin = 0.20;
+        private const double FitScaleFactorMax = 4.00;
 
         public Form1()
         {
@@ -1040,6 +1046,530 @@ namespace WindowsFormsApp1
             }
         }
 
+        private void btnExplodirNoRetangulo_Click(object sender, EventArgs e)
+        {
+            bool usePlaneXY = chkPlanoXY.Checked;
+            bool usePlaneXZ = chkPlanoXZ.Checked;
+            bool usePlaneZY = chkPlanoZY.Checked;
+            bool ghostLineEnabled = chkGhostLinhas.Checked;
+            bool colorirEnabled = chkColorir.Checked;
+
+            if (!usePlaneXY && !usePlaneXZ && !usePlaneZY)
+            {
+                UpdateStatus("Falha: selecione pelo menos um plano (xy/xz/zy).", Color.DarkOrange);
+                SetOutput("Marque ao menos um checkbox de plano antes de explodir no retangulo.");
+                return;
+            }
+
+            string selectedPlanes = string.Empty;
+            if (usePlaneXY)
+            {
+                selectedPlanes += "xy ";
+            }
+
+            if (usePlaneXZ)
+            {
+                selectedPlanes += "xz ";
+            }
+
+            if (usePlaneZY)
+            {
+                selectedPlanes += "zy ";
+            }
+
+            selectedPlanes = selectedPlanes.Trim();
+
+            try
+            {
+                object drawingHandler = CreateDrawingHandler();
+                if (drawingHandler == null)
+                {
+                    UpdateStatus("Falha: API de drawing do Tekla nao encontrada.", Color.DarkRed);
+                    SetOutput("Nao foi possivel carregar Tekla.Structures.Drawing.DrawingHandler.");
+                    return;
+                }
+
+                object activeDrawing = InvokeParameterlessMethod(drawingHandler, "GetActiveDrawing");
+                if (activeDrawing == null)
+                {
+                    UpdateStatus("Falha: nenhum desenho aberto no Tekla.", Color.DarkOrange);
+                    SetOutput("Abra um desenho no Tekla antes de usar o ajuste por retangulo.");
+                    return;
+                }
+
+                object sheet = InvokeParameterlessMethod(activeDrawing, "GetSheet");
+                if (sheet == null)
+                {
+                    UpdateStatus("Falha: nao foi possivel ler a folha do desenho.", Color.DarkRed);
+                    SetOutput("Drawing.GetSheet retornou nulo.");
+                    return;
+                }
+
+                double rectMinX;
+                double rectMinY;
+                double rectMaxX;
+                double rectMaxY;
+                int selectedObjectCount;
+                int boundedSelectedCount;
+                if (!TryGetSelectedPlacementRectangle(
+                        drawingHandler,
+                        out rectMinX,
+                        out rectMinY,
+                        out rectMaxX,
+                        out rectMaxY,
+                        out selectedObjectCount,
+                        out boundedSelectedCount))
+                {
+                    UpdateStatus("Falha: retangulo selecionado nao encontrado.", Color.DarkOrange);
+                    SetOutput("Selecione o retangulo de area (ou objetos que o delimitem) e clique novamente.");
+                    return;
+                }
+
+                object sourceView;
+                int inspectedViews;
+                int candidateViews;
+                string sourceViewName;
+                double sourceIsoScore;
+                if (!TryFindBestIsometricViewInSheet(
+                        sheet,
+                        out sourceView,
+                        out inspectedViews,
+                        out candidateViews,
+                        out sourceViewName,
+                        out sourceIsoScore)
+                    || sourceView == null)
+                {
+                    UpdateStatus("Falha: nenhuma vista isometrica encontrada.", Color.DarkOrange);
+                    SetOutput("Nao foi possivel localizar automaticamente uma vista isometrica no desenho ativo.");
+                    return;
+                }
+
+                List<ExplodedPartPlan> partPlans = CollectPartPlansFromView(sourceView);
+                if (partPlans.Count == 0)
+                {
+                    UpdateStatus("Falha: a vista isometrica nao possui partes legiveis.", Color.DarkOrange);
+                    SetOutput("Nenhum ModelIdentifier de parte foi encontrado na vista isometrica detectada.");
+                    return;
+                }
+
+                partPlans.Sort(
+                    delegate (ExplodedPartPlan left, ExplodedPartPlan right)
+                    {
+                        return string.Compare(left.IdentifierKey, right.IdentifierKey, StringComparison.Ordinal);
+                    });
+
+                int candidateCount = partPlans.Count;
+                bool truncated = false;
+                int maxPartsAllowed = MaxExplodedViews;
+                if (ghostLineEnabled)
+                {
+                    maxPartsAllowed = Math.Max(1, (MaxExplodedViews + 1) / 2);
+                }
+
+                if (partPlans.Count > maxPartsAllowed)
+                {
+                    partPlans.RemoveRange(maxPartsAllowed, partPlans.Count - maxPartsAllowed);
+                    truncated = true;
+                }
+
+                MarkMainPartByLargest2D(partPlans);
+
+                int removedExisting = DeleteExistingExplodedViews(sheet, ExplodedViewPrefix);
+                int removedGuideLines = DeleteExistingGuideLines(sheet);
+
+                double sourceScale = GetSourceViewScale(sourceView);
+                object model = CreateModelInstance();
+                int centersFromModel;
+                int movedByXY;
+                int movedByXZ;
+                int movedByZY;
+                bool modelLayoutUsed = ComputeExplodedOffsetsByPlanes(
+                    sourceView,
+                    partPlans,
+                    sourceScale,
+                    model,
+                    usePlaneXY,
+                    usePlaneXZ,
+                    usePlaneZY,
+                    out centersFromModel,
+                    out movedByXY,
+                    out movedByXZ,
+                    out movedByZY);
+
+                bool fallbackLayoutUsed = false;
+                if (!modelLayoutUsed)
+                {
+                    int fallbackCenters;
+                    ComputeExplodedOffsets(sourceView, partPlans, sourceScale, model, out fallbackCenters);
+                    centersFromModel = Math.Max(centersFromModel, fallbackCenters);
+                    fallbackLayoutUsed = true;
+                }
+
+                object anchorOrigin = GetPropertyValue(sourceView, "Origin");
+                double sourceOriginX;
+                double sourceOriginY;
+                double anchorZ;
+                if (!TryGetXYZ(anchorOrigin, out sourceOriginX, out sourceOriginY, out anchorZ))
+                {
+                    UpdateStatus("Falha: nao foi possivel ler origem da vista isometrica.", Color.DarkRed);
+                    SetOutput("View.Origin da vista detectada nao esta disponivel.");
+                    return;
+                }
+
+                double layoutMinX;
+                double layoutMinY;
+                double layoutMaxX;
+                double layoutMaxY;
+                if (!TryGetPlannedLayoutBounds(
+                        partPlans,
+                        ghostLineEnabled,
+                        1.0,
+                        out layoutMinX,
+                        out layoutMinY,
+                        out layoutMaxX,
+                        out layoutMaxY))
+                {
+                    UpdateStatus("Falha: nao foi possivel calcular o layout base da explosao.", Color.DarkRed);
+                    SetOutput("Nao foi possivel calcular os limites base da vista explodida.");
+                    return;
+                }
+
+                double layoutWidth = Math.Max(0.0, layoutMaxX - layoutMinX);
+                double layoutHeight = Math.Max(0.0, layoutMaxY - layoutMinY);
+                double rectCenterX = (rectMinX + rectMaxX) * 0.5;
+                double rectCenterY = (rectMinY + rectMaxY) * 0.5;
+                double layoutCenterX = (layoutMinX + layoutMaxX) * 0.5;
+                double layoutCenterY = (layoutMinY + layoutMaxY) * 0.5;
+                double anchorX = rectCenterX - layoutCenterX;
+                double anchorY = rectCenterY - layoutCenterY;
+
+                double sourceScaleForFit = sourceScale > 0.0 ? sourceScale : 1.0;
+                List<object> fitViews = new List<object>();
+
+                object viewCoordinateSystem = GetPropertyValue(sourceView, "ViewCoordinateSystem");
+                object displayCoordinateSystem = GetPropertyValue(sourceView, "DisplayCoordinateSystem");
+                if (viewCoordinateSystem == null || displayCoordinateSystem == null)
+                {
+                    UpdateStatus("Falha: coordenadas da vista isometrica indisponiveis.", Color.DarkRed);
+                    SetOutput("ViewCoordinateSystem/DisplayCoordinateSystem da vista detectada nao encontrados.");
+                    return;
+                }
+
+                int created = 0;
+                int failed = 0;
+                int autoIsoAppliedCount = 0;
+                int fallbackRotationCount = 0;
+                int contourColoredCount = 0;
+                int contourNotChangedCount = 0;
+                int ghostPairsRequested = 0;
+                int ghostOriginalCreated = 0;
+                int ghostExplodedCreated = 0;
+                int guideLinesRequested = 0;
+                int guideLinesCreated = 0;
+                int guideLinesFailed = 0;
+                int viewSequence = 1;
+
+                for (int i = 0; i < partPlans.Count; i++)
+                {
+                    ExplodedPartPlan plan = partPlans[i];
+
+                    if (ghostLineEnabled && !plan.IsMainPart)
+                    {
+                        ghostPairsRequested++;
+
+                        bool originalAutoIsoApplied;
+                        object originalView = CreateSinglePartViewForFit(
+                            sheet,
+                            viewCoordinateSystem,
+                            displayCoordinateSystem,
+                            plan.Identifier,
+                            sourceScaleForFit,
+                            ExplodedViewPrefix + viewSequence.ToString("D3") + "_ORG",
+                            out originalAutoIsoApplied);
+                        viewSequence++;
+
+                        bool originalCreated = false;
+                        if (originalView != null)
+                        {
+                            if (RotateExplodedToIsometric && !originalAutoIsoApplied)
+                            {
+                                RotateViewToIsometric(originalView);
+                                fallbackRotationCount++;
+                            }
+
+                            if (ForceViewCenterToTarget(
+                                    originalView,
+                                    anchorX + plan.OriginalOffsetX,
+                                    anchorY + plan.OriginalOffsetY,
+                                    anchorZ))
+                            {
+                                TryApplyGhostStyleToView(originalView);
+                                if (colorirEnabled)
+                                {
+                                    int originalContourColor = GetContourColorForPlan(plan);
+                                    if (originalContourColor > 0 && TryApplyContourColorToView(originalView, originalContourColor))
+                                    {
+                                        contourColoredCount++;
+                                    }
+                                    else
+                                    {
+                                        contourNotChangedCount++;
+                                    }
+                                }
+
+                                if (originalAutoIsoApplied)
+                                {
+                                    autoIsoAppliedCount++;
+                                }
+
+                                created++;
+                                ghostOriginalCreated++;
+                                fitViews.Add(originalView);
+                                originalCreated = true;
+                            }
+                            else
+                            {
+                                failed++;
+                            }
+                        }
+                        else
+                        {
+                            failed++;
+                        }
+
+                        bool explodedAutoIsoApplied;
+                        object explodedView = CreateSinglePartViewForFit(
+                            sheet,
+                            viewCoordinateSystem,
+                            displayCoordinateSystem,
+                            plan.Identifier,
+                            sourceScaleForFit,
+                            ExplodedViewPrefix + viewSequence.ToString("D3") + "_EXP",
+                            out explodedAutoIsoApplied);
+                        viewSequence++;
+
+                        bool explodedCreated = false;
+                        if (explodedView != null)
+                        {
+                            if (RotateExplodedToIsometric && !explodedAutoIsoApplied)
+                            {
+                                RotateViewToIsometric(explodedView);
+                                fallbackRotationCount++;
+                            }
+
+                            if (ForceViewCenterToTarget(
+                                    explodedView,
+                                    anchorX + plan.OffsetX,
+                                    anchorY + plan.OffsetY,
+                                    anchorZ))
+                            {
+                                if (colorirEnabled)
+                                {
+                                    int explodedContourColor = GetContourColorForPlan(plan);
+                                    if (explodedContourColor > 0 && TryApplyContourColorToView(explodedView, explodedContourColor))
+                                    {
+                                        contourColoredCount++;
+                                    }
+                                    else
+                                    {
+                                        contourNotChangedCount++;
+                                    }
+                                }
+
+                                if (explodedAutoIsoApplied)
+                                {
+                                    autoIsoAppliedCount++;
+                                }
+
+                                created++;
+                                ghostExplodedCreated++;
+                                fitViews.Add(explodedView);
+                                explodedCreated = true;
+                            }
+                            else
+                            {
+                                failed++;
+                            }
+                        }
+                        else
+                        {
+                            failed++;
+                        }
+
+                        guideLinesRequested++;
+                        if (originalCreated
+                            && explodedCreated
+                            && TryCreateGuideLine(
+                                sheet,
+                                anchorX + plan.OriginalOffsetX,
+                                anchorY + plan.OriginalOffsetY,
+                                anchorZ,
+                                anchorX + plan.OffsetX,
+                                anchorY + plan.OffsetY,
+                                anchorZ))
+                        {
+                            guideLinesCreated++;
+                        }
+                        else
+                        {
+                            guideLinesFailed++;
+                        }
+
+                        continue;
+                    }
+
+                    string viewName = ExplodedViewPrefix + viewSequence.ToString("D3");
+                    viewSequence++;
+                    bool autoIsoApplied;
+
+                    object newView = CreateSinglePartViewForFit(
+                        sheet,
+                        viewCoordinateSystem,
+                        displayCoordinateSystem,
+                        plan.Identifier,
+                        sourceScaleForFit,
+                        viewName,
+                        out autoIsoApplied);
+
+                    if (newView == null)
+                    {
+                        failed++;
+                        continue;
+                    }
+
+                    if (autoIsoApplied)
+                    {
+                        autoIsoAppliedCount++;
+                    }
+
+                    if (RotateExplodedToIsometric && !autoIsoApplied)
+                    {
+                        RotateViewToIsometric(newView);
+                        fallbackRotationCount++;
+                    }
+
+                    bool positioned = ForceViewCenterToTarget(
+                        newView,
+                        anchorX + plan.OffsetX,
+                        anchorY + plan.OffsetY,
+                        anchorZ);
+                    if (!positioned)
+                    {
+                        failed++;
+                        continue;
+                    }
+
+                    if (colorirEnabled)
+                    {
+                        int contourColor = GetContourColorForPlan(plan);
+                        if (contourColor > 0 && TryApplyContourColorToView(newView, contourColor))
+                        {
+                            contourColoredCount++;
+                        }
+                        else
+                        {
+                            contourNotChangedCount++;
+                        }
+                    }
+
+                    created++;
+                    fitViews.Add(newView);
+                }
+
+                bool fitRectangleCreated = false;
+                double explodedBoundsMinX;
+                double explodedBoundsMinY;
+                double explodedBoundsMaxX;
+                double explodedBoundsMaxY;
+                double yellowRectWidth = 0.0;
+                double yellowRectHeight = 0.0;
+                if (TryGetViewsUnionBounds(fitViews, out explodedBoundsMinX, out explodedBoundsMinY, out explodedBoundsMaxX, out explodedBoundsMaxY))
+                {
+                    yellowRectWidth = Math.Max(0.0, (explodedBoundsMaxX - explodedBoundsMinX) + (2.0 * FitRectangleBorderPadding));
+                    yellowRectHeight = Math.Max(0.0, (explodedBoundsMaxY - explodedBoundsMinY) + (2.0 * FitRectangleBorderPadding));
+                    fitRectangleCreated = TryCreateFitRectangle(
+                        sheet,
+                        explodedBoundsMinX - FitRectangleBorderPadding,
+                        explodedBoundsMinY - FitRectangleBorderPadding,
+                        explodedBoundsMaxX + FitRectangleBorderPadding,
+                        explodedBoundsMaxY + FitRectangleBorderPadding,
+                        anchorZ);
+                }
+
+                InvokeParameterlessMethod(drawingHandler, "SaveActiveDrawing");
+
+                double rectWidth = Math.Abs(rectMaxX - rectMinX);
+                double rectHeight = Math.Abs(rectMaxY - rectMinY);
+
+                StringBuilder report = new StringBuilder();
+                report.AppendLine("Vista explodida dentro do retangulo selecionado");
+                report.AppendLine("----------------------------------------------");
+                report.AppendLine("Planos ativos: " + selectedPlanes);
+                report.AppendLine("Ghost + linha: " + (ghostLineEnabled ? "ligado" : "desligado"));
+                report.AppendLine("Colorir: " + (colorirEnabled ? "ligado" : "desligado"));
+                report.AppendLine("Objetos selecionados no desenho: " + selectedObjectCount);
+                report.AppendLine("Objetos usados para retangulo: " + boundedSelectedCount);
+                report.AppendLine("Retangulo selecionado: W=" + rectWidth.ToString("0.###") + " H=" + rectHeight.ToString("0.###"));
+                report.AppendLine("Vista isometrica detectada: " + (string.IsNullOrWhiteSpace(sourceViewName) ? "(sem nome)" : sourceViewName));
+                report.AppendLine("Score isometrico da vista: " + sourceIsoScore.ToString("0.###"));
+                report.AppendLine("Vistas inspecionadas na folha: " + inspectedViews);
+                report.AppendLine("Vistas candidatas com partes: " + candidateViews);
+                report.AppendLine("Partes candidatas na vista: " + candidateCount + (truncated ? " (limitado para " + maxPartsAllowed + ")" : string.Empty));
+                report.AppendLine("Vistas explodidas antigas removidas: " + removedExisting);
+                report.AppendLine("Linhas guia antigas removidas: " + removedGuideLines);
+                report.AppendLine("Base de posicionamento: " + (modelLayoutUsed ? "modelo (explosao por planos)" : "fallback"));
+                report.AppendLine("Fallback usado: " + (fallbackLayoutUsed ? "sim" : "nao"));
+                report.AppendLine("Centros lidos do modelo: " + centersFromModel);
+                report.AppendLine("Movimentos aplicados por plano:");
+                report.AppendLine("  xy: " + movedByXY);
+                report.AppendLine("  xz: " + movedByXZ);
+                report.AppendLine("  zy: " + movedByZY);
+                report.AppendLine("Ajuste de escala automatico: desligado");
+                report.AppendLine("Layout base calculado: W=" + layoutWidth.ToString("0.###") + " H=" + layoutHeight.ToString("0.###"));
+                report.AppendLine("Retangulo verde informado: W=" + rectWidth.ToString("0.###") + " H=" + rectHeight.ToString("0.###"));
+                report.AppendLine("Retangulo amarelo criado: W=" + yellowRectWidth.ToString("0.###") + " H=" + yellowRectHeight.ToString("0.###"));
+                report.AppendLine("Retangulo amarelo criado: " + (fitRectangleCreated ? "sim" : "nao"));
+                report.AppendLine("Escala da vista fonte: " + sourceScale.ToString("0.###"));
+                report.AppendLine("Escala usada na nova vista: " + sourceScaleForFit.ToString("0.###"));
+                report.AppendLine("Perfil de vista solicitado: " + ExplodedViewAttributeFile);
+                report.AppendLine("Vistas com perfil aplicado: " + autoIsoAppliedCount);
+                report.AppendLine("Rotacao isometrica de fallback: " + fallbackRotationCount);
+                report.AppendLine("Cor de contorno aplicada: " + contourColoredCount);
+                report.AppendLine("Sem mudanca de cor: " + contourNotChangedCount);
+                if (ghostLineEnabled)
+                {
+                    report.AppendLine("Ghost pares secundarios: " + ghostPairsRequested);
+                    report.AppendLine("Ghost vistas originais criadas: " + ghostOriginalCreated);
+                    report.AppendLine("Ghost vistas deslocadas criadas: " + ghostExplodedCreated);
+                    report.AppendLine("Linhas guia solicitadas: " + guideLinesRequested);
+                    report.AppendLine("Linhas guia criadas: " + guideLinesCreated);
+                    report.AppendLine("Linhas guia falhas: " + guideLinesFailed);
+                }
+                report.AppendLine("Vistas criadas: " + created);
+                report.AppendLine("Falhas: " + failed);
+                report.AppendLine();
+                report.AppendLine("Anchor final no retangulo (sheet): X=" + anchorX.ToString("0.###") + " Y=" + anchorY.ToString("0.###"));
+                report.AppendLine("Origem Z da vista fonte: " + anchorZ.ToString("0.###"));
+                report.AppendLine();
+                report.AppendLine("Observacao: fluxo 100% drawing-only (sem leitura/escrita no modelo).");
+
+                SetOutput(report.ToString());
+
+                if (created > 0)
+                {
+                    UpdateStatus("Sucesso: vista explodida criada dentro do retangulo.", Color.DarkGreen);
+                }
+                else
+                {
+                    UpdateStatus("Falha: nenhuma vista foi criada no retangulo.", Color.DarkOrange);
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus("Erro ao explodir no retangulo: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
+            }
+        }
+
         private static int GetContourColorForPlan(ExplodedPartPlan plan)
         {
             if (plan == null)
@@ -1202,6 +1732,174 @@ namespace WindowsFormsApp1
                 changed |= TrySetLineTypeDashed(lineTypeAttributes);
                 changed |= TrySetColorProperty(lineTypeAttributes, "Color", GuideLineColor);
                 changed |= TrySetColorProperty(lineTypeAttributes, "TrueColor", GuideLineColor);
+                SetPropertyValue(lineAttributes, "Line", lineTypeAttributes);
+            }
+
+            return changed;
+        }
+
+        private static bool TryCreateFitRectangle(
+            object viewBase,
+            double minX,
+            double minY,
+            double maxX,
+            double maxY,
+            double z)
+        {
+            if (viewBase == null || maxX <= minX || maxY <= minY)
+            {
+                return false;
+            }
+
+            string rectangleName = FitRectangleNamePrefix + Guid.NewGuid().ToString("N");
+            int created = 0;
+
+            if (TryCreateNamedLine(viewBase, minX, minY, z, maxX, minY, z, rectangleName + "_01", FitRectangleColor, false))
+            {
+                created++;
+            }
+
+            if (TryCreateNamedLine(viewBase, maxX, minY, z, maxX, maxY, z, rectangleName + "_02", FitRectangleColor, false))
+            {
+                created++;
+            }
+
+            if (TryCreateNamedLine(viewBase, maxX, maxY, z, minX, maxY, z, rectangleName + "_03", FitRectangleColor, false))
+            {
+                created++;
+            }
+
+            if (TryCreateNamedLine(viewBase, minX, maxY, z, minX, minY, z, rectangleName + "_04", FitRectangleColor, false))
+            {
+                created++;
+            }
+
+            return created == 4;
+        }
+
+        private static bool TryCreateNamedLine(
+            object viewBase,
+            double startX,
+            double startY,
+            double startZ,
+            double endX,
+            double endY,
+            double endZ,
+            string lineName,
+            int colorIndex,
+            bool dashed)
+        {
+            if (viewBase == null)
+            {
+                return false;
+            }
+
+            double dx = endX - startX;
+            double dy = endY - startY;
+            double dz = endZ - startZ;
+            if (((dx * dx) + (dy * dy) + (dz * dz)) < 1e-8)
+            {
+                return false;
+            }
+
+            object startPoint = CreatePoint(startX, startY, startZ);
+            object endPoint = CreatePoint(endX, endY, endZ);
+            if (startPoint == null || endPoint == null)
+            {
+                return false;
+            }
+
+            Type lineType = ResolveTeklaType(
+                "Tekla.Structures.Drawing.Line",
+                "Tekla.Structures.Drawing",
+                TeklaDrawingDllCandidates);
+            if (lineType == null)
+            {
+                return false;
+            }
+
+            Type lineAttributesType = ResolveTeklaType(
+                "Tekla.Structures.Drawing.Line+LineAttributes",
+                "Tekla.Structures.Drawing",
+                TeklaDrawingDllCandidates);
+
+            object lineAttributes = null;
+            if (lineAttributesType != null)
+            {
+                try
+                {
+                    lineAttributes = Activator.CreateInstance(lineAttributesType);
+                }
+                catch
+                {
+                    lineAttributes = null;
+                }
+            }
+
+            if (lineAttributes != null)
+            {
+                ApplyNamedLineStyle(lineAttributes, colorIndex, dashed);
+                SetPropertyValue(lineAttributes, "Name", lineName);
+            }
+
+            object lineObject = null;
+            if (lineAttributes != null)
+            {
+                try
+                {
+                    lineObject = Activator.CreateInstance(lineType, new object[] { viewBase, startPoint, endPoint, lineAttributes });
+                }
+                catch
+                {
+                    lineObject = null;
+                }
+            }
+
+            if (lineObject == null)
+            {
+                try
+                {
+                    lineObject = Activator.CreateInstance(lineType, new object[] { viewBase, startPoint, endPoint });
+                }
+                catch
+                {
+                    lineObject = null;
+                }
+            }
+
+            if (lineObject == null)
+            {
+                return false;
+            }
+
+            if (lineAttributes != null)
+            {
+                SetPropertyValue(lineObject, "Attributes", lineAttributes, "Tekla.Structures.Drawing.Line");
+            }
+
+            SetPropertyValue(lineObject, "Name", lineName);
+            bool? inserted = InvokeBoolMethod(lineObject, "Insert");
+            return inserted.HasValue && inserted.Value;
+        }
+
+        private static bool ApplyNamedLineStyle(object lineAttributes, int colorIndex, bool dashed)
+        {
+            if (lineAttributes == null)
+            {
+                return false;
+            }
+
+            bool changed = false;
+            object lineTypeAttributes = GetPropertyValue(lineAttributes, "Line");
+            if (lineTypeAttributes != null)
+            {
+                if (dashed)
+                {
+                    changed |= TrySetLineTypeDashed(lineTypeAttributes);
+                }
+
+                changed |= TrySetColorProperty(lineTypeAttributes, "Color", colorIndex);
+                changed |= TrySetColorProperty(lineTypeAttributes, "TrueColor", colorIndex);
                 SetPropertyValue(lineAttributes, "Line", lineTypeAttributes);
             }
 
@@ -2048,6 +2746,702 @@ namespace WindowsFormsApp1
             return candidate.GetType().Name.IndexOf("View", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        private static bool TryGetSelectedPlacementRectangle(
+            object drawingHandler,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY,
+            out int selectedObjectCount,
+            out int boundedObjectCount)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+            selectedObjectCount = 0;
+            boundedObjectCount = 0;
+
+            if (drawingHandler == null)
+            {
+                return false;
+            }
+
+            object selector = InvokeParameterlessMethod(drawingHandler, "GetDrawingObjectSelector");
+            if (selector == null)
+            {
+                return false;
+            }
+
+            object selectedEnumerator = InvokeParameterlessMethod(selector, "GetSelected");
+            if (selectedEnumerator == null)
+            {
+                return false;
+            }
+
+            MethodInfo moveNext = selectedEnumerator.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo current = selectedEnumerator.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
+            if (moveNext == null || current == null)
+            {
+                return false;
+            }
+
+            bool hasBounds = false;
+            while (true)
+            {
+                object moved = moveNext.Invoke(selectedEnumerator, null);
+                if (!(moved is bool) || !(bool)moved)
+                {
+                    break;
+                }
+
+                object selectedObject = current.GetValue(selectedEnumerator, null);
+                if (selectedObject == null)
+                {
+                    continue;
+                }
+
+                selectedObjectCount++;
+
+                double objMinX;
+                double objMinY;
+                double objMaxX;
+                double objMaxY;
+
+                bool gotBounds = TryGetDrawingObjectBounds2D(selectedObject, out objMinX, out objMinY, out objMaxX, out objMaxY)
+                    || TryGetObjectPointBounds2D(selectedObject, out objMinX, out objMinY, out objMaxX, out objMaxY);
+
+                if (!gotBounds)
+                {
+                    double centerX;
+                    double centerY;
+                    double sizeScore;
+                    if (TryGetDrawingObjectCenter2D(selectedObject, out centerX, out centerY, out sizeScore))
+                    {
+                        double half = Math.Max(1.0, Math.Min(12.0, sizeScore * 0.35));
+                        objMinX = centerX - half;
+                        objMinY = centerY - half;
+                        objMaxX = centerX + half;
+                        objMaxY = centerY + half;
+                        gotBounds = true;
+                    }
+                }
+
+                if (!gotBounds)
+                {
+                    object maybeParentView = ExtractViewFromSelectedObject(selectedObject, null);
+                    if (maybeParentView != null && !ReferenceEquals(maybeParentView, selectedObject))
+                    {
+                        gotBounds = TryGetDrawingObjectBounds2D(maybeParentView, out objMinX, out objMinY, out objMaxX, out objMaxY);
+                    }
+                }
+
+                if (!gotBounds)
+                {
+                    continue;
+                }
+
+                if (!hasBounds)
+                {
+                    minX = objMinX;
+                    minY = objMinY;
+                    maxX = objMaxX;
+                    maxY = objMaxY;
+                    hasBounds = true;
+                }
+                else
+                {
+                    minX = Math.Min(minX, objMinX);
+                    minY = Math.Min(minY, objMinY);
+                    maxX = Math.Max(maxX, objMaxX);
+                    maxY = Math.Max(maxY, objMaxY);
+                }
+
+                boundedObjectCount++;
+            }
+
+            if (!hasBounds)
+            {
+                return false;
+            }
+
+            double width = Math.Abs(maxX - minX);
+            double height = Math.Abs(maxY - minY);
+            return width > 1e-6 && height > 1e-6;
+        }
+
+        private static bool TryGetObjectPointBounds2D(
+            object drawingObject,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+
+            if (drawingObject == null)
+            {
+                return false;
+            }
+
+            foreach (string propertyName in new[] { "Points", "Vertices", "Polygon", "ContourPoints", "ControlPoints" })
+            {
+                object value = GetPropertyValue(drawingObject, propertyName);
+                if (TryGetPointCollectionBounds2D(value, out minX, out minY, out maxX, out maxY))
+                {
+                    return true;
+                }
+            }
+
+            foreach (string methodName in new[] { "GetPoints", "GetVertices", "GetPolygon", "GetContourPoints" })
+            {
+                object value = InvokeParameterlessMethod(drawingObject, methodName);
+                if (TryGetPointCollectionBounds2D(value, out minX, out minY, out maxX, out maxY))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetPointCollectionBounds2D(
+            object collection,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+
+            if (collection == null || collection is string)
+            {
+                return false;
+            }
+
+            IEnumerable enumerable = collection as IEnumerable;
+            if (enumerable == null)
+            {
+                return false;
+            }
+
+            bool hasAny = false;
+            foreach (object item in enumerable)
+            {
+                if (item == null)
+                {
+                    continue;
+                }
+
+                double px;
+                double py;
+                double pz;
+                if (!TryGetXYZ(item, out px, out py, out pz))
+                {
+                    object nestedPoint = GetPropertyValue(item, "Point") ?? GetPropertyValue(item, "Position");
+                    if (!TryGetXYZ(nestedPoint, out px, out py, out pz))
+                    {
+                        continue;
+                    }
+                }
+
+                if (!hasAny)
+                {
+                    minX = px;
+                    minY = py;
+                    maxX = px;
+                    maxY = py;
+                    hasAny = true;
+                }
+                else
+                {
+                    minX = Math.Min(minX, px);
+                    minY = Math.Min(minY, py);
+                    maxX = Math.Max(maxX, px);
+                    maxY = Math.Max(maxY, py);
+                }
+            }
+
+            return hasAny && Math.Abs(maxX - minX) > 1e-6 && Math.Abs(maxY - minY) > 1e-6;
+        }
+
+        private static bool TryFindBestIsometricViewInSheet(
+            object sheet,
+            out object bestView,
+            out int inspectedViews,
+            out int candidateViews,
+            out string bestViewName,
+            out double bestIsoScore)
+        {
+            bestView = null;
+            inspectedViews = 0;
+            candidateViews = 0;
+            bestViewName = string.Empty;
+            bestIsoScore = 0.0;
+
+            if (sheet == null)
+            {
+                return false;
+            }
+
+            object allObjects = InvokeParameterlessMethod(sheet, "GetAllObjects");
+            if (allObjects == null)
+            {
+                return false;
+            }
+
+            MethodInfo moveNext = allObjects.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo current = allObjects.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
+            if (moveNext == null || current == null)
+            {
+                return false;
+            }
+
+            double bestScore = double.MinValue;
+            while (true)
+            {
+                object moved = moveNext.Invoke(allObjects, null);
+                if (!(moved is bool) || !(bool)moved)
+                {
+                    break;
+                }
+
+                object drawingObject = current.GetValue(allObjects, null);
+                if (!IsViewObject(drawingObject, null))
+                {
+                    continue;
+                }
+
+                inspectedViews++;
+
+                string viewName = Convert.ToString(GetPropertyValue(drawingObject, "Name")) ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(viewName)
+                    && viewName.StartsWith(ExplodedViewPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                List<ExplodedPartPlan> viewPlans = CollectPartPlansFromView(drawingObject);
+                int partCount = viewPlans != null ? viewPlans.Count : 0;
+                if (partCount <= 0)
+                {
+                    continue;
+                }
+
+                candidateViews++;
+
+                double centerX;
+                double centerY;
+                double sizeScore;
+                if (!TryGetDrawingObjectCenter2D(drawingObject, out centerX, out centerY, out sizeScore))
+                {
+                    sizeScore = 1.0;
+                }
+
+                double isoScore = ComputeIsometricOrientationScore(drawingObject, viewName);
+                double rankingScore = (isoScore * 100000.0) + (partCount * 1000.0) + sizeScore;
+                if (rankingScore > bestScore)
+                {
+                    bestScore = rankingScore;
+                    bestView = drawingObject;
+                    bestViewName = viewName;
+                    bestIsoScore = isoScore;
+                }
+            }
+
+            return bestView != null;
+        }
+
+        private static double ComputeIsometricOrientationScore(object viewObject, string viewName)
+        {
+            double score = 0.0;
+            if (viewObject != null)
+            {
+                object coordinateSystem = GetPropertyValue(viewObject, "ViewCoordinateSystem");
+                if (coordinateSystem != null)
+                {
+                    double ax;
+                    double ay;
+                    double az;
+                    if (TryGetXYZ(GetPropertyValue(coordinateSystem, "AxisX"), out ax, out ay, out az))
+                    {
+                        score += ComputeAxisSpread(ax, ay, az);
+                    }
+
+                    if (TryGetXYZ(GetPropertyValue(coordinateSystem, "AxisY"), out ax, out ay, out az))
+                    {
+                        score += ComputeAxisSpread(ax, ay, az);
+                    }
+
+                    if (TryGetXYZ(GetPropertyValue(coordinateSystem, "AxisZ"), out ax, out ay, out az))
+                    {
+                        score += ComputeAxisSpread(ax, ay, az) * 0.85;
+                    }
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(viewName)
+                && viewName.IndexOf("iso", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += 1.25;
+            }
+
+            return score;
+        }
+
+        private static double ComputeAxisSpread(double x, double y, double z)
+        {
+            double ax = Math.Abs(x);
+            double ay = Math.Abs(y);
+            double az = Math.Abs(z);
+            double sum = ax + ay + az;
+            double dominant = Math.Max(ax, Math.Max(ay, az));
+            return Math.Max(0.0, sum - dominant);
+        }
+
+        private static bool TryComputeFitIntoRectangle(
+            List<ExplodedPartPlan> plans,
+            bool ghostLineEnabled,
+            double rectMinX,
+            double rectMinY,
+            double rectMaxX,
+            double rectMaxY,
+            out double fitScaleFactor,
+            out double anchorX,
+            out double anchorY,
+            out double fittedLayoutWidth,
+            out double fittedLayoutHeight)
+        {
+            fitScaleFactor = 1.0;
+            anchorX = 0.0;
+            anchorY = 0.0;
+            fittedLayoutWidth = 0.0;
+            fittedLayoutHeight = 0.0;
+
+            double baseMinX;
+            double baseMinY;
+            double baseMaxX;
+            double baseMaxY;
+            if (!TryGetPlannedLayoutBounds(
+                    plans,
+                    ghostLineEnabled,
+                    1.0,
+                    out baseMinX,
+                    out baseMinY,
+                    out baseMaxX,
+                    out baseMaxY))
+            {
+                return false;
+            }
+
+            double baseWidth = Math.Max(1e-6, baseMaxX - baseMinX);
+            double baseHeight = Math.Max(1e-6, baseMaxY - baseMinY);
+
+            double fitPadding = FitRectanglePadding + FitRectangleBorderPadding;
+            double targetWidth = Math.Max(1.0, Math.Abs(rectMaxX - rectMinX) - (2.0 * fitPadding));
+            double targetHeight = Math.Max(1.0, Math.Abs(rectMaxY - rectMinY) - (2.0 * fitPadding));
+
+            double rawFactor = Math.Min(targetWidth / baseWidth, targetHeight / baseHeight);
+            if (!(rawFactor > 0.0))
+            {
+                rawFactor = 1.0;
+            }
+
+            // For fit-to-rectangle we only shrink or keep the original scale.
+            // Allowing the estimate to enlarge is too optimistic and causes overflow.
+            rawFactor = Math.Min(1.0, rawFactor);
+            fitScaleFactor = Math.Max(FitScaleFactorMin, Math.Min(FitScaleFactorMax, rawFactor));
+
+            double layoutCenterBaseX = (baseMinX + baseMaxX) * 0.5;
+            double layoutCenterBaseY = (baseMinY + baseMaxY) * 0.5;
+            double rectCenterX = (rectMinX + rectMaxX) * 0.5;
+            double rectCenterY = (rectMinY + rectMaxY) * 0.5;
+
+            anchorX = rectCenterX - (layoutCenterBaseX * fitScaleFactor);
+            anchorY = rectCenterY - (layoutCenterBaseY * fitScaleFactor);
+            fittedLayoutWidth = baseWidth * fitScaleFactor;
+            fittedLayoutHeight = baseHeight * fitScaleFactor;
+            return true;
+        }
+
+        private static void ScalePlannedOffsets(List<ExplodedPartPlan> plans, double factor)
+        {
+            if (plans == null || plans.Count == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < plans.Count; i++)
+            {
+                ExplodedPartPlan plan = plans[i];
+                plan.OriginalOffsetX *= factor;
+                plan.OriginalOffsetY *= factor;
+                plan.OffsetX *= factor;
+                plan.OffsetY *= factor;
+            }
+        }
+
+        private static bool TryGetPlannedLayoutBounds(
+            List<ExplodedPartPlan> plans,
+            bool ghostLineEnabled,
+            double visualScaleFactor,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+
+            if (plans == null || plans.Count == 0)
+            {
+                return false;
+            }
+
+            bool hasAny = false;
+            for (int i = 0; i < plans.Count; i++)
+            {
+                ExplodedPartPlan plan = plans[i];
+                double halfSize = GetPlanHalfSize2D(plan, visualScaleFactor);
+
+                if (ghostLineEnabled && !plan.IsMainPart)
+                {
+                    ExpandBounds(ref hasAny, ref minX, ref minY, ref maxX, ref maxY, plan.OriginalOffsetX, plan.OriginalOffsetY, halfSize);
+                    ExpandBounds(ref hasAny, ref minX, ref minY, ref maxX, ref maxY, plan.OffsetX, plan.OffsetY, halfSize);
+                }
+                else
+                {
+                    ExpandBounds(ref hasAny, ref minX, ref minY, ref maxX, ref maxY, plan.OffsetX, plan.OffsetY, halfSize);
+                }
+            }
+
+            return hasAny;
+        }
+
+        private static double GetPlanHalfSize2D(ExplodedPartPlan plan, double visualScaleFactor)
+        {
+            if (plan == null)
+            {
+                return 2.0;
+            }
+
+            double baseSize = plan.ApproxSize2D > 1e-6 ? plan.ApproxSize2D : 8.0;
+            double scaled = baseSize * Math.Max(0.01, visualScaleFactor);
+            return Math.Max(2.0, scaled * 0.5);
+        }
+
+        private static void ExpandBounds(
+            ref bool hasAny,
+            ref double minX,
+            ref double minY,
+            ref double maxX,
+            ref double maxY,
+            double centerX,
+            double centerY,
+            double halfSize)
+        {
+            double left = centerX - halfSize;
+            double right = centerX + halfSize;
+            double bottom = centerY - halfSize;
+            double top = centerY + halfSize;
+
+            if (!hasAny)
+            {
+                minX = left;
+                minY = bottom;
+                maxX = right;
+                maxY = top;
+                hasAny = true;
+                return;
+            }
+
+            minX = Math.Min(minX, left);
+            minY = Math.Min(minY, bottom);
+            maxX = Math.Max(maxX, right);
+            maxY = Math.Max(maxY, top);
+        }
+
+        private bool TryFitCreatedViewsIntoRectangle(
+            List<object> createdViews,
+            Dictionary<string, double> fitViewScales,
+            double rectMinX,
+            double rectMinY,
+            double rectMaxX,
+            double rectMaxY,
+            double anchorZ,
+            out double factorApplied,
+            out int adjustedViews)
+        {
+            factorApplied = 1.0;
+            adjustedViews = 0;
+
+            if (createdViews == null || createdViews.Count == 0)
+            {
+                return false;
+            }
+
+            double fitPadding = FitRectanglePadding + FitRectangleBorderPadding;
+            double targetWidth = Math.Max(1.0, Math.Abs(rectMaxX - rectMinX) - (2.0 * fitPadding));
+            double targetHeight = Math.Max(1.0, Math.Abs(rectMaxY - rectMinY) - (2.0 * fitPadding));
+            double targetCenterX = (rectMinX + rectMaxX) * 0.5;
+            double targetCenterY = (rectMinY + rectMaxY) * 0.5;
+
+            bool appliedAny = false;
+            for (int pass = 0; pass < 8; pass++)
+            {
+                double currentMinX;
+                double currentMinY;
+                double currentMaxX;
+                double currentMaxY;
+                if (!TryGetViewsUnionBounds(createdViews, out currentMinX, out currentMinY, out currentMaxX, out currentMaxY))
+                {
+                    break;
+                }
+
+                double currentWidth = Math.Max(1e-6, currentMaxX - currentMinX);
+                double currentHeight = Math.Max(1e-6, currentMaxY - currentMinY);
+                double rawFactor = Math.Min(targetWidth / currentWidth, targetHeight / currentHeight);
+                if (!(rawFactor > 0.0))
+                {
+                    break;
+                }
+
+                if (rawFactor >= 0.999)
+                {
+                    break;
+                }
+
+                double factor = Math.Max(0.10, Math.Min(0.999, rawFactor * 0.96));
+                double currentCenterX = (currentMinX + currentMaxX) * 0.5;
+                double currentCenterY = (currentMinY + currentMaxY) * 0.5;
+
+                for (int i = 0; i < createdViews.Count; i++)
+                {
+                    object view = createdViews[i];
+                    if (view == null)
+                    {
+                        continue;
+                    }
+
+                    double viewCenterX;
+                    double viewCenterY;
+                    double viewSize;
+                    if (!TryGetDrawingObjectCenter2D(view, out viewCenterX, out viewCenterY, out viewSize))
+                    {
+                        continue;
+                    }
+
+                    string viewKey = GetDrawingObjectKey(view);
+                    double viewScale = 0.0;
+                    if (fitViewScales == null
+                        || !fitViewScales.TryGetValue(viewKey, out viewScale)
+                        || !(viewScale > 0.0))
+                    {
+                        viewScale = GetSourceViewScale(view);
+                    }
+
+                    double newScale = viewScale / factor;
+                    TryForceViewScale(view, newScale);
+                    if (fitViewScales != null)
+                    {
+                        fitViewScales[viewKey] = newScale;
+                    }
+
+                    double newCenterX = targetCenterX + ((viewCenterX - currentCenterX) * factor);
+                    double newCenterY = targetCenterY + ((viewCenterY - currentCenterY) * factor);
+                    if (ForceViewCenterToTarget(view, newCenterX, newCenterY, anchorZ))
+                    {
+                        adjustedViews++;
+                    }
+                }
+
+                appliedAny = true;
+                factorApplied *= factor;
+            }
+
+            return appliedAny;
+        }
+
+        private static bool TryGetViewsUnionBounds(
+            List<object> views,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+
+            if (views == null || views.Count == 0)
+            {
+                return false;
+            }
+
+            bool hasAny = false;
+            for (int i = 0; i < views.Count; i++)
+            {
+                object view = views[i];
+                if (view == null)
+                {
+                    continue;
+                }
+
+                double viewMinX;
+                double viewMinY;
+                double viewMaxX;
+                double viewMaxY;
+                if (!TryGetDrawingObjectBounds2D(view, out viewMinX, out viewMinY, out viewMaxX, out viewMaxY))
+                {
+                    continue;
+                }
+
+                if (!hasAny)
+                {
+                    minX = viewMinX;
+                    minY = viewMinY;
+                    maxX = viewMaxX;
+                    maxY = viewMaxY;
+                    hasAny = true;
+                }
+                else
+                {
+                    minX = Math.Min(minX, viewMinX);
+                    minY = Math.Min(minY, viewMinY);
+                    maxX = Math.Max(maxX, viewMaxX);
+                    maxY = Math.Max(maxY, viewMaxY);
+                }
+            }
+
+            return hasAny;
+        }
+
+        private static string GetDrawingObjectKey(object drawingObject)
+        {
+            if (drawingObject == null)
+            {
+                return Guid.NewGuid().ToString("N");
+            }
+
+            object rawName = GetPropertyValue(drawingObject, "Name");
+            string name = rawName != null ? rawName.ToString() : string.Empty;
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                return name;
+            }
+
+            return drawingObject.GetHashCode().ToString();
+        }
+
         private static List<ExplodedPartPlan> CollectPartPlansFromView(object sourceView)
         {
             List<ExplodedPartPlan> plans = new List<ExplodedPartPlan>();
@@ -2590,7 +3984,8 @@ namespace WindowsFormsApp1
             object rawName = GetPropertyValue(target, "Name");
             string name = rawName != null ? rawName.ToString() : string.Empty;
             return !string.IsNullOrWhiteSpace(name)
-                && name.StartsWith(GuideLineNamePrefix, StringComparison.OrdinalIgnoreCase);
+                && (name.StartsWith(GuideLineNamePrefix, StringComparison.OrdinalIgnoreCase)
+                    || name.StartsWith(FitRectangleNamePrefix, StringComparison.OrdinalIgnoreCase));
         }
 
         private static bool MatchesGuideLineStyle(object attributes)
@@ -3975,6 +5370,102 @@ namespace WindowsFormsApp1
             return view;
         }
 
+        private object CreateSinglePartViewForFit(
+            object sheet,
+            object viewCoordinateSystem,
+            object displayCoordinateSystem,
+            object identifier,
+            double sourceScale,
+            string viewName,
+            out bool autoIsoApplied)
+        {
+            autoIsoApplied = false;
+
+            Type viewType = ResolveTeklaType(
+                "Tekla.Structures.Drawing.View",
+                "Tekla.Structures.Drawing",
+                TeklaDrawingDllCandidates);
+            if (viewType == null)
+            {
+                return null;
+            }
+
+            ArrayList partList = new ArrayList();
+            partList.Add(identifier);
+
+            object view;
+            try
+            {
+                view = Activator.CreateInstance(
+                    viewType,
+                    new object[] { sheet, viewCoordinateSystem, displayCoordinateSystem, partList });
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(viewName))
+            {
+                SetPropertyValue(view, "Name", viewName);
+            }
+
+            object viewAttributes = GetPropertyValue(view, "Attributes", "Tekla.Structures.Drawing.View");
+            if (viewAttributes != null)
+            {
+                // Neste fluxo carregamos o perfil para manter a formatacao visual e,
+                // em seguida, forçamos a escala de fit.
+                autoIsoApplied = TryLoadAttributesByName(viewAttributes, ExplodedViewAttributeFile);
+                if (!autoIsoApplied)
+                {
+                    autoIsoApplied = TryLoadAttributesByName(view, ExplodedViewAttributeFile);
+                }
+
+                SetPropertyValue(viewAttributes, "Scale", sourceScale);
+                SetPropertyValue(viewAttributes, "FixedViewPlacing", true);
+                SetPropertyValue(view, "Attributes", viewAttributes, "Tekla.Structures.Drawing.View");
+            }
+
+            bool? inserted = InvokeBoolMethod(view, "Insert");
+            if (!inserted.HasValue || !inserted.Value)
+            {
+                return null;
+            }
+
+            TryForceViewScale(view, sourceScale);
+
+            return view;
+        }
+
+        private static bool TryForceViewScale(object view, double scale)
+        {
+            if (view == null || !(scale > 0.0))
+            {
+                return false;
+            }
+
+            bool changed = false;
+            object viewAttributes = GetPropertyValue(view, "Attributes", "Tekla.Structures.Drawing.View")
+                ?? GetPropertyValue(view, "Attributes");
+            if (viewAttributes != null)
+            {
+                changed |= SetPropertyValue(viewAttributes, "Scale", scale);
+                changed |= SetPropertyValue(viewAttributes, "ScaleX", scale);
+                changed |= SetPropertyValue(viewAttributes, "ScaleY", scale);
+                changed |= SetPropertyValue(view, "Attributes", viewAttributes, "Tekla.Structures.Drawing.View")
+                    || SetPropertyValue(view, "Attributes", viewAttributes);
+            }
+
+            changed |= SetPropertyValue(view, "Scale", scale);
+
+            if (changed)
+            {
+                InvokeBoolMethod(view, "Modify");
+            }
+
+            return changed;
+        }
+
         private static bool TryLoadAttributesByName(object target, string attributesName)
         {
             if (target == null || string.IsNullOrWhiteSpace(attributesName))
@@ -4435,3 +5926,4 @@ namespace WindowsFormsApp1
         }
     }
 }
+
