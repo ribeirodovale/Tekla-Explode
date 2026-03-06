@@ -33,9 +33,6 @@ namespace WindowsFormsApp1
             this.lblTeklaStatusLink = new System.Windows.Forms.Label();
             this.pnlDrawingIndicator = new System.Windows.Forms.Panel();
             this.lblDrawingStatusLink = new System.Windows.Forms.Label();
-            this.chkPlanoZY = new System.Windows.Forms.CheckBox();
-            this.chkPlanoXZ = new System.Windows.Forms.CheckBox();
-            this.chkPlanoXY = new System.Windows.Forms.CheckBox();
             this.chkGhostLinhas = new System.Windows.Forms.CheckBox();
             this.chkLinhas = new System.Windows.Forms.CheckBox();
             this.chkColorir = new System.Windows.Forms.CheckBox();
@@ -102,50 +99,15 @@ namespace WindowsFormsApp1
             this.lblDrawingStatusLink.Text = "O Desenho";
             this.lblDrawingStatusLink.Click += new System.EventHandler(this.btnVerificarDesenho_Click);
             // 
-            // chkPlanoZY
-            // 
-            this.chkPlanoZY.AutoSize = true;
-            this.chkPlanoZY.ForeColor = System.Drawing.Color.Firebrick;
-            this.chkPlanoZY.Location = new System.Drawing.Point(22, 58);
-            this.chkPlanoZY.Name = "chkPlanoZY";
-            this.chkPlanoZY.Size = new System.Drawing.Size(37, 20);
-            this.chkPlanoZY.TabIndex = 4;
-            this.chkPlanoZY.Text = "X";
-            this.chkPlanoZY.UseVisualStyleBackColor = true;
-            // 
-            // chkPlanoXZ
-            // 
-            this.chkPlanoXZ.AutoSize = true;
-            this.chkPlanoXZ.ForeColor = System.Drawing.Color.ForestGreen;
-            this.chkPlanoXZ.Location = new System.Drawing.Point(115, 58);
-            this.chkPlanoXZ.Name = "chkPlanoXZ";
-            this.chkPlanoXZ.Size = new System.Drawing.Size(36, 20);
-            this.chkPlanoXZ.TabIndex = 5;
-            this.chkPlanoXZ.Text = "Y";
-            this.chkPlanoXZ.UseVisualStyleBackColor = true;
-            // 
-            // chkPlanoXY
-            // 
-            this.chkPlanoXY.AutoSize = true;
-            this.chkPlanoXY.Checked = true;
-            this.chkPlanoXY.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkPlanoXY.ForeColor = System.Drawing.Color.RoyalBlue;
-            this.chkPlanoXY.Location = new System.Drawing.Point(208, 58);
-            this.chkPlanoXY.Name = "chkPlanoXY";
-            this.chkPlanoXY.Size = new System.Drawing.Size(37, 20);
-            this.chkPlanoXY.TabIndex = 6;
-            this.chkPlanoXY.Text = "Z";
-            this.chkPlanoXY.UseVisualStyleBackColor = true;
-            // 
             // chkGhostLinhas
             // 
             this.chkGhostLinhas.AutoSize = true;
             this.chkGhostLinhas.Checked = true;
             this.chkGhostLinhas.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkGhostLinhas.Location = new System.Drawing.Point(22, 88);
+            this.chkGhostLinhas.Location = new System.Drawing.Point(22, 58);
             this.chkGhostLinhas.Name = "chkGhostLinhas";
             this.chkGhostLinhas.Size = new System.Drawing.Size(64, 20);
-            this.chkGhostLinhas.TabIndex = 7;
+            this.chkGhostLinhas.TabIndex = 4;
             this.chkGhostLinhas.Text = "Ghost";
             this.chkGhostLinhas.UseVisualStyleBackColor = true;
             // 
@@ -154,20 +116,20 @@ namespace WindowsFormsApp1
             this.chkLinhas.AutoSize = true;
             this.chkLinhas.Checked = true;
             this.chkLinhas.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkLinhas.Location = new System.Drawing.Point(115, 88);
+            this.chkLinhas.Location = new System.Drawing.Point(115, 58);
             this.chkLinhas.Name = "chkLinhas";
             this.chkLinhas.Size = new System.Drawing.Size(67, 20);
-            this.chkLinhas.TabIndex = 8;
+            this.chkLinhas.TabIndex = 5;
             this.chkLinhas.Text = "Linhas";
             this.chkLinhas.UseVisualStyleBackColor = true;
             // 
             // chkColorir
             // 
             this.chkColorir.AutoSize = true;
-            this.chkColorir.Location = new System.Drawing.Point(208, 88);
+            this.chkColorir.Location = new System.Drawing.Point(208, 58);
             this.chkColorir.Name = "chkColorir";
             this.chkColorir.Size = new System.Drawing.Size(68, 20);
-            this.chkColorir.TabIndex = 9;
+            this.chkColorir.TabIndex = 6;
             this.chkColorir.Text = "Colorir";
             this.chkColorir.UseVisualStyleBackColor = true;
             // 
@@ -177,10 +139,10 @@ namespace WindowsFormsApp1
             this.chkXPositivo.Checked = true;
             this.chkXPositivo.CheckState = System.Windows.Forms.CheckState.Checked;
             this.chkXPositivo.ForeColor = System.Drawing.Color.Firebrick;
-            this.chkXPositivo.Location = new System.Drawing.Point(22, 118);
+            this.chkXPositivo.Location = new System.Drawing.Point(22, 88);
             this.chkXPositivo.Name = "chkXPositivo";
             this.chkXPositivo.Size = new System.Drawing.Size(42, 20);
-            this.chkXPositivo.TabIndex = 10;
+            this.chkXPositivo.TabIndex = 7;
             this.chkXPositivo.Text = "X+";
             this.chkXPositivo.UseVisualStyleBackColor = true;
             // 
@@ -190,10 +152,10 @@ namespace WindowsFormsApp1
             this.chkXNegativo.Checked = true;
             this.chkXNegativo.CheckState = System.Windows.Forms.CheckState.Checked;
             this.chkXNegativo.ForeColor = System.Drawing.Color.Firebrick;
-            this.chkXNegativo.Location = new System.Drawing.Point(91, 118);
+            this.chkXNegativo.Location = new System.Drawing.Point(91, 88);
             this.chkXNegativo.Name = "chkXNegativo";
             this.chkXNegativo.Size = new System.Drawing.Size(40, 20);
-            this.chkXNegativo.TabIndex = 11;
+            this.chkXNegativo.TabIndex = 8;
             this.chkXNegativo.Text = "X-";
             this.chkXNegativo.UseVisualStyleBackColor = true;
             // 
@@ -203,10 +165,10 @@ namespace WindowsFormsApp1
             this.chkYPositivo.Checked = true;
             this.chkYPositivo.CheckState = System.Windows.Forms.CheckState.Checked;
             this.chkYPositivo.ForeColor = System.Drawing.Color.ForestGreen;
-            this.chkYPositivo.Location = new System.Drawing.Point(158, 118);
+            this.chkYPositivo.Location = new System.Drawing.Point(158, 88);
             this.chkYPositivo.Name = "chkYPositivo";
             this.chkYPositivo.Size = new System.Drawing.Size(41, 20);
-            this.chkYPositivo.TabIndex = 12;
+            this.chkYPositivo.TabIndex = 9;
             this.chkYPositivo.Text = "Y+";
             this.chkYPositivo.UseVisualStyleBackColor = true;
             // 
@@ -216,10 +178,10 @@ namespace WindowsFormsApp1
             this.chkYNegativo.Checked = true;
             this.chkYNegativo.CheckState = System.Windows.Forms.CheckState.Checked;
             this.chkYNegativo.ForeColor = System.Drawing.Color.ForestGreen;
-            this.chkYNegativo.Location = new System.Drawing.Point(225, 118);
+            this.chkYNegativo.Location = new System.Drawing.Point(225, 88);
             this.chkYNegativo.Name = "chkYNegativo";
             this.chkYNegativo.Size = new System.Drawing.Size(39, 20);
-            this.chkYNegativo.TabIndex = 13;
+            this.chkYNegativo.TabIndex = 10;
             this.chkYNegativo.Text = "Y-";
             this.chkYNegativo.UseVisualStyleBackColor = true;
             // 
@@ -229,10 +191,10 @@ namespace WindowsFormsApp1
             this.chkZPositivo.Checked = true;
             this.chkZPositivo.CheckState = System.Windows.Forms.CheckState.Checked;
             this.chkZPositivo.ForeColor = System.Drawing.Color.RoyalBlue;
-            this.chkZPositivo.Location = new System.Drawing.Point(22, 144);
+            this.chkZPositivo.Location = new System.Drawing.Point(22, 114);
             this.chkZPositivo.Name = "chkZPositivo";
             this.chkZPositivo.Size = new System.Drawing.Size(42, 20);
-            this.chkZPositivo.TabIndex = 14;
+            this.chkZPositivo.TabIndex = 11;
             this.chkZPositivo.Text = "Z+";
             this.chkZPositivo.UseVisualStyleBackColor = true;
             // 
@@ -242,19 +204,19 @@ namespace WindowsFormsApp1
             this.chkZNegativo.Checked = true;
             this.chkZNegativo.CheckState = System.Windows.Forms.CheckState.Checked;
             this.chkZNegativo.ForeColor = System.Drawing.Color.RoyalBlue;
-            this.chkZNegativo.Location = new System.Drawing.Point(91, 144);
+            this.chkZNegativo.Location = new System.Drawing.Point(91, 114);
             this.chkZNegativo.Name = "chkZNegativo";
             this.chkZNegativo.Size = new System.Drawing.Size(40, 20);
-            this.chkZNegativo.TabIndex = 15;
+            this.chkZNegativo.TabIndex = 12;
             this.chkZNegativo.Text = "Z-";
             this.chkZNegativo.UseVisualStyleBackColor = true;
             // 
             // btnCriarFolhaInteira
             // 
-            this.btnCriarFolhaInteira.Location = new System.Drawing.Point(22, 180);
+            this.btnCriarFolhaInteira.Location = new System.Drawing.Point(22, 150);
             this.btnCriarFolhaInteira.Name = "btnCriarFolhaInteira";
             this.btnCriarFolhaInteira.Size = new System.Drawing.Size(276, 36);
-            this.btnCriarFolhaInteira.TabIndex = 16;
+            this.btnCriarFolhaInteira.TabIndex = 13;
             this.btnCriarFolhaInteira.BackColor = System.Drawing.Color.White;
             this.btnCriarFolhaInteira.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnCriarFolhaInteira.Font = new System.Drawing.Font("Segoe UI Semibold", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
@@ -264,10 +226,10 @@ namespace WindowsFormsApp1
             // 
             // btnCriarAreaDefinida
             // 
-            this.btnCriarAreaDefinida.Location = new System.Drawing.Point(22, 224);
+            this.btnCriarAreaDefinida.Location = new System.Drawing.Point(22, 194);
             this.btnCriarAreaDefinida.Name = "btnCriarAreaDefinida";
             this.btnCriarAreaDefinida.Size = new System.Drawing.Size(276, 36);
-            this.btnCriarAreaDefinida.TabIndex = 17;
+            this.btnCriarAreaDefinida.TabIndex = 14;
             this.btnCriarAreaDefinida.BackColor = System.Drawing.Color.White;
             this.btnCriarAreaDefinida.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnCriarAreaDefinida.Font = new System.Drawing.Font("Segoe UI Semibold", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
@@ -277,10 +239,10 @@ namespace WindowsFormsApp1
             // 
             // btnLimparVistaExplodida
             // 
-            this.btnLimparVistaExplodida.Location = new System.Drawing.Point(22, 268);
+            this.btnLimparVistaExplodida.Location = new System.Drawing.Point(22, 238);
             this.btnLimparVistaExplodida.Name = "btnLimparVistaExplodida";
             this.btnLimparVistaExplodida.Size = new System.Drawing.Size(276, 36);
-            this.btnLimparVistaExplodida.TabIndex = 18;
+            this.btnLimparVistaExplodida.TabIndex = 15;
             this.btnLimparVistaExplodida.BackColor = System.Drawing.Color.White;
             this.btnLimparVistaExplodida.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnLimparVistaExplodida.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
@@ -291,10 +253,10 @@ namespace WindowsFormsApp1
             // lblStatusTekla
             // 
             this.lblStatusTekla.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(70)))), ((int)(((byte)(78)))), ((int)(((byte)(92)))));
-            this.lblStatusTekla.Location = new System.Drawing.Point(22, 312);
+            this.lblStatusTekla.Location = new System.Drawing.Point(22, 282);
             this.lblStatusTekla.Name = "lblStatusTekla";
             this.lblStatusTekla.Size = new System.Drawing.Size(276, 32);
-            this.lblStatusTekla.TabIndex = 19;
+            this.lblStatusTekla.TabIndex = 16;
             this.lblStatusTekla.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.lblStatusTekla.Visible = false;
             // 
@@ -302,10 +264,10 @@ namespace WindowsFormsApp1
             // 
             this.btnToggleLog.BackColor = System.Drawing.Color.White;
             this.btnToggleLog.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnToggleLog.Location = new System.Drawing.Point(22, 348);
+            this.btnToggleLog.Location = new System.Drawing.Point(22, 318);
             this.btnToggleLog.Name = "btnToggleLog";
             this.btnToggleLog.Size = new System.Drawing.Size(276, 28);
-            this.btnToggleLog.TabIndex = 20;
+            this.btnToggleLog.TabIndex = 17;
             this.btnToggleLog.Text = "+ Mostrar log";
             this.btnToggleLog.UseVisualStyleBackColor = true;
             this.btnToggleLog.Click += new System.EventHandler(this.btnToggleLog_Click);
@@ -313,10 +275,10 @@ namespace WindowsFormsApp1
             // chkTeste
             // 
             this.chkTeste.AutoSize = true;
-            this.chkTeste.Location = new System.Drawing.Point(22, 383);
+            this.chkTeste.Location = new System.Drawing.Point(22, 353);
             this.chkTeste.Name = "chkTeste";
             this.chkTeste.Size = new System.Drawing.Size(60, 20);
-            this.chkTeste.TabIndex = 21;
+            this.chkTeste.TabIndex = 18;
             this.chkTeste.Text = "Teste";
             this.chkTeste.UseVisualStyleBackColor = true;
             // 
@@ -325,10 +287,10 @@ namespace WindowsFormsApp1
             this.pnlLog.BackColor = System.Drawing.Color.White;
             this.pnlLog.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.pnlLog.Controls.Add(this.txtSaida);
-            this.pnlLog.Location = new System.Drawing.Point(22, 411);
+            this.pnlLog.Location = new System.Drawing.Point(22, 381);
             this.pnlLog.Name = "pnlLog";
             this.pnlLog.Size = new System.Drawing.Size(276, 174);
-            this.pnlLog.TabIndex = 22;
+            this.pnlLog.TabIndex = 19;
             this.pnlLog.Visible = false;
             // 
             // txtSaida
@@ -349,7 +311,7 @@ namespace WindowsFormsApp1
             // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(244)))), ((int)(((byte)(246)))), ((int)(((byte)(248)))));
-            this.ClientSize = new System.Drawing.Size(320, 417);
+            this.ClientSize = new System.Drawing.Size(320, 387);
             this.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.Controls.Add(this.pnlLog);
             this.Controls.Add(this.chkTeste);
@@ -367,9 +329,6 @@ namespace WindowsFormsApp1
             this.Controls.Add(this.chkColorir);
             this.Controls.Add(this.chkLinhas);
             this.Controls.Add(this.chkGhostLinhas);
-            this.Controls.Add(this.chkPlanoXY);
-            this.Controls.Add(this.chkPlanoXZ);
-            this.Controls.Add(this.chkPlanoZY);
             this.Controls.Add(this.lblDrawingStatusLink);
             this.Controls.Add(this.pnlDrawingIndicator);
             this.Controls.Add(this.lblTeklaStatusLink);
@@ -392,9 +351,6 @@ namespace WindowsFormsApp1
         private System.Windows.Forms.Label lblTeklaStatusLink;
         private System.Windows.Forms.Panel pnlDrawingIndicator;
         private System.Windows.Forms.Label lblDrawingStatusLink;
-        private System.Windows.Forms.CheckBox chkPlanoZY;
-        private System.Windows.Forms.CheckBox chkPlanoXZ;
-        private System.Windows.Forms.CheckBox chkPlanoXY;
         private System.Windows.Forms.CheckBox chkGhostLinhas;
         private System.Windows.Forms.CheckBox chkLinhas;
         private System.Windows.Forms.CheckBox chkColorir;

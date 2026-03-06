@@ -54,8 +54,8 @@ namespace WindowsFormsApp1
         private const double TestAxisMinimumLength = 18.0;
         private const double FitScaleFactorMin = 0.20;
         private const double FitScaleFactorMax = 4.00;
-        private const int CollapsedClientHeight = 417;
-        private const int ExpandedClientHeight = 601;
+        private const int CollapsedClientHeight = 387;
+        private const int ExpandedClientHeight = 571;
 
         private bool logExpanded;
 
@@ -695,16 +695,16 @@ namespace WindowsFormsApp1
 
         private void btnExplodirPorPlanos_Click(object sender, EventArgs e)
         {
-            bool usePlaneXY = chkPlanoXY.Checked;
-            bool usePlaneXZ = chkPlanoXZ.Checked;
-            bool usePlaneZY = chkPlanoZY.Checked;
             bool ghostLineEnabled = chkGhostLinhas.Checked;
             bool colorirEnabled = chkColorir.Checked;
+            bool usePlaneZY = chkXPositivo.Checked || chkXNegativo.Checked;
+            bool usePlaneXZ = chkYPositivo.Checked || chkYNegativo.Checked;
+            bool usePlaneXY = chkZPositivo.Checked || chkZNegativo.Checked;
 
             if (!usePlaneXY && !usePlaneXZ && !usePlaneZY)
             {
-                UpdateStatus("Falha: selecione pelo menos um plano (xy/xz/zy).", Color.DarkOrange);
-                SetOutput("Marque ao menos um checkbox de plano antes de explodir.");
+                UpdateStatus("Falha: selecione pelo menos um sentido em X+/X-/Y+/Y-/Z+/Z-.", Color.DarkOrange);
+                SetOutput("Marque ao menos um checkbox em X+/X-/Y+/Y-/Z+/Z- antes de explodir.");
                 return;
             }
 
@@ -1198,9 +1198,6 @@ namespace WindowsFormsApp1
 
         private void CriarVistaExplodidaEmArea(bool useSelectedArea)
         {
-            bool planeZEnabled = chkPlanoXY.Checked;
-            bool planeYEnabled = chkPlanoXZ.Checked;
-            bool planeXEnabled = chkPlanoZY.Checked;
             bool ghostEnabled = chkGhostLinhas.Checked;
             bool guideLinesEnabled = chkLinhas.Checked;
             bool colorirEnabled = chkColorir.Checked;
@@ -1211,14 +1208,14 @@ namespace WindowsFormsApp1
             bool allowYNegative = chkYNegativo.Checked;
             bool allowZPositive = chkZPositivo.Checked;
             bool allowZNegative = chkZNegativo.Checked;
-            bool usePlaneZY = planeXEnabled || allowXPositive || allowXNegative;
-            bool usePlaneXZ = planeYEnabled || allowYPositive || allowYNegative;
-            bool usePlaneXY = planeZEnabled || allowZPositive || allowZNegative;
+            bool usePlaneZY = allowXPositive || allowXNegative;
+            bool usePlaneXZ = allowYPositive || allowYNegative;
+            bool usePlaneXY = allowZPositive || allowZNegative;
 
             if (!usePlaneXY && !usePlaneXZ && !usePlaneZY)
             {
                 UpdateStatus("Falha: selecione pelo menos um eixo ou sentido.", Color.DarkOrange);
-                SetOutput("Marque ao menos um checkbox em X/Y/Z ou X+/X-/Y+/Y-/Z+/Z- antes de criar a vista ajustada.");
+                SetOutput("Marque ao menos um checkbox em X+/X-/Y+/Y-/Z+/Z- antes de criar a vista ajustada.");
                 return;
             }
 
