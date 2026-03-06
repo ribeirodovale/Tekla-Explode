@@ -39,6 +39,12 @@ namespace WindowsFormsApp1
             this.chkGhostLinhas = new System.Windows.Forms.CheckBox();
             this.chkLinhas = new System.Windows.Forms.CheckBox();
             this.chkColorir = new System.Windows.Forms.CheckBox();
+            this.chkXPositivo = new System.Windows.Forms.CheckBox();
+            this.chkXNegativo = new System.Windows.Forms.CheckBox();
+            this.chkYPositivo = new System.Windows.Forms.CheckBox();
+            this.chkYNegativo = new System.Windows.Forms.CheckBox();
+            this.chkZPositivo = new System.Windows.Forms.CheckBox();
+            this.chkZNegativo = new System.Windows.Forms.CheckBox();
             this.btnCriarFolhaInteira = new System.Windows.Forms.Button();
             this.btnCriarAreaDefinida = new System.Windows.Forms.Button();
             this.btnLimparVistaExplodida = new System.Windows.Forms.Button();
@@ -165,12 +171,90 @@ namespace WindowsFormsApp1
             this.chkColorir.Text = "Colorir";
             this.chkColorir.UseVisualStyleBackColor = true;
             // 
+            // chkXPositivo
+            // 
+            this.chkXPositivo.AutoSize = true;
+            this.chkXPositivo.Checked = true;
+            this.chkXPositivo.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkXPositivo.ForeColor = System.Drawing.Color.Firebrick;
+            this.chkXPositivo.Location = new System.Drawing.Point(22, 118);
+            this.chkXPositivo.Name = "chkXPositivo";
+            this.chkXPositivo.Size = new System.Drawing.Size(42, 20);
+            this.chkXPositivo.TabIndex = 10;
+            this.chkXPositivo.Text = "X+";
+            this.chkXPositivo.UseVisualStyleBackColor = true;
+            // 
+            // chkXNegativo
+            // 
+            this.chkXNegativo.AutoSize = true;
+            this.chkXNegativo.Checked = true;
+            this.chkXNegativo.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkXNegativo.ForeColor = System.Drawing.Color.Firebrick;
+            this.chkXNegativo.Location = new System.Drawing.Point(91, 118);
+            this.chkXNegativo.Name = "chkXNegativo";
+            this.chkXNegativo.Size = new System.Drawing.Size(40, 20);
+            this.chkXNegativo.TabIndex = 11;
+            this.chkXNegativo.Text = "X-";
+            this.chkXNegativo.UseVisualStyleBackColor = true;
+            // 
+            // chkYPositivo
+            // 
+            this.chkYPositivo.AutoSize = true;
+            this.chkYPositivo.Checked = true;
+            this.chkYPositivo.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkYPositivo.ForeColor = System.Drawing.Color.ForestGreen;
+            this.chkYPositivo.Location = new System.Drawing.Point(158, 118);
+            this.chkYPositivo.Name = "chkYPositivo";
+            this.chkYPositivo.Size = new System.Drawing.Size(41, 20);
+            this.chkYPositivo.TabIndex = 12;
+            this.chkYPositivo.Text = "Y+";
+            this.chkYPositivo.UseVisualStyleBackColor = true;
+            // 
+            // chkYNegativo
+            // 
+            this.chkYNegativo.AutoSize = true;
+            this.chkYNegativo.Checked = true;
+            this.chkYNegativo.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkYNegativo.ForeColor = System.Drawing.Color.ForestGreen;
+            this.chkYNegativo.Location = new System.Drawing.Point(225, 118);
+            this.chkYNegativo.Name = "chkYNegativo";
+            this.chkYNegativo.Size = new System.Drawing.Size(39, 20);
+            this.chkYNegativo.TabIndex = 13;
+            this.chkYNegativo.Text = "Y-";
+            this.chkYNegativo.UseVisualStyleBackColor = true;
+            // 
+            // chkZPositivo
+            // 
+            this.chkZPositivo.AutoSize = true;
+            this.chkZPositivo.Checked = true;
+            this.chkZPositivo.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkZPositivo.ForeColor = System.Drawing.Color.RoyalBlue;
+            this.chkZPositivo.Location = new System.Drawing.Point(22, 144);
+            this.chkZPositivo.Name = "chkZPositivo";
+            this.chkZPositivo.Size = new System.Drawing.Size(42, 20);
+            this.chkZPositivo.TabIndex = 14;
+            this.chkZPositivo.Text = "Z+";
+            this.chkZPositivo.UseVisualStyleBackColor = true;
+            // 
+            // chkZNegativo
+            // 
+            this.chkZNegativo.AutoSize = true;
+            this.chkZNegativo.Checked = true;
+            this.chkZNegativo.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.chkZNegativo.ForeColor = System.Drawing.Color.RoyalBlue;
+            this.chkZNegativo.Location = new System.Drawing.Point(91, 144);
+            this.chkZNegativo.Name = "chkZNegativo";
+            this.chkZNegativo.Size = new System.Drawing.Size(40, 20);
+            this.chkZNegativo.TabIndex = 15;
+            this.chkZNegativo.Text = "Z-";
+            this.chkZNegativo.UseVisualStyleBackColor = true;
+            // 
             // btnCriarFolhaInteira
             // 
-            this.btnCriarFolhaInteira.Location = new System.Drawing.Point(22, 126);
+            this.btnCriarFolhaInteira.Location = new System.Drawing.Point(22, 180);
             this.btnCriarFolhaInteira.Name = "btnCriarFolhaInteira";
             this.btnCriarFolhaInteira.Size = new System.Drawing.Size(276, 36);
-            this.btnCriarFolhaInteira.TabIndex = 10;
+            this.btnCriarFolhaInteira.TabIndex = 16;
             this.btnCriarFolhaInteira.BackColor = System.Drawing.Color.White;
             this.btnCriarFolhaInteira.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnCriarFolhaInteira.Font = new System.Drawing.Font("Segoe UI Semibold", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
@@ -180,10 +264,10 @@ namespace WindowsFormsApp1
             // 
             // btnCriarAreaDefinida
             // 
-            this.btnCriarAreaDefinida.Location = new System.Drawing.Point(22, 170);
+            this.btnCriarAreaDefinida.Location = new System.Drawing.Point(22, 224);
             this.btnCriarAreaDefinida.Name = "btnCriarAreaDefinida";
             this.btnCriarAreaDefinida.Size = new System.Drawing.Size(276, 36);
-            this.btnCriarAreaDefinida.TabIndex = 11;
+            this.btnCriarAreaDefinida.TabIndex = 17;
             this.btnCriarAreaDefinida.BackColor = System.Drawing.Color.White;
             this.btnCriarAreaDefinida.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnCriarAreaDefinida.Font = new System.Drawing.Font("Segoe UI Semibold", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
@@ -193,10 +277,10 @@ namespace WindowsFormsApp1
             // 
             // btnLimparVistaExplodida
             // 
-            this.btnLimparVistaExplodida.Location = new System.Drawing.Point(22, 214);
+            this.btnLimparVistaExplodida.Location = new System.Drawing.Point(22, 268);
             this.btnLimparVistaExplodida.Name = "btnLimparVistaExplodida";
             this.btnLimparVistaExplodida.Size = new System.Drawing.Size(276, 36);
-            this.btnLimparVistaExplodida.TabIndex = 12;
+            this.btnLimparVistaExplodida.TabIndex = 18;
             this.btnLimparVistaExplodida.BackColor = System.Drawing.Color.White;
             this.btnLimparVistaExplodida.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnLimparVistaExplodida.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
@@ -207,10 +291,10 @@ namespace WindowsFormsApp1
             // lblStatusTekla
             // 
             this.lblStatusTekla.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(70)))), ((int)(((byte)(78)))), ((int)(((byte)(92)))));
-            this.lblStatusTekla.Location = new System.Drawing.Point(22, 258);
+            this.lblStatusTekla.Location = new System.Drawing.Point(22, 312);
             this.lblStatusTekla.Name = "lblStatusTekla";
             this.lblStatusTekla.Size = new System.Drawing.Size(276, 32);
-            this.lblStatusTekla.TabIndex = 13;
+            this.lblStatusTekla.TabIndex = 19;
             this.lblStatusTekla.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.lblStatusTekla.Visible = false;
             // 
@@ -218,10 +302,10 @@ namespace WindowsFormsApp1
             // 
             this.btnToggleLog.BackColor = System.Drawing.Color.White;
             this.btnToggleLog.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnToggleLog.Location = new System.Drawing.Point(22, 294);
+            this.btnToggleLog.Location = new System.Drawing.Point(22, 348);
             this.btnToggleLog.Name = "btnToggleLog";
             this.btnToggleLog.Size = new System.Drawing.Size(276, 28);
-            this.btnToggleLog.TabIndex = 14;
+            this.btnToggleLog.TabIndex = 20;
             this.btnToggleLog.Text = "+ Mostrar log";
             this.btnToggleLog.UseVisualStyleBackColor = true;
             this.btnToggleLog.Click += new System.EventHandler(this.btnToggleLog_Click);
@@ -229,10 +313,10 @@ namespace WindowsFormsApp1
             // chkTeste
             // 
             this.chkTeste.AutoSize = true;
-            this.chkTeste.Location = new System.Drawing.Point(22, 329);
+            this.chkTeste.Location = new System.Drawing.Point(22, 383);
             this.chkTeste.Name = "chkTeste";
             this.chkTeste.Size = new System.Drawing.Size(60, 20);
-            this.chkTeste.TabIndex = 15;
+            this.chkTeste.TabIndex = 21;
             this.chkTeste.Text = "Teste";
             this.chkTeste.UseVisualStyleBackColor = true;
             // 
@@ -241,10 +325,10 @@ namespace WindowsFormsApp1
             this.pnlLog.BackColor = System.Drawing.Color.White;
             this.pnlLog.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.pnlLog.Controls.Add(this.txtSaida);
-            this.pnlLog.Location = new System.Drawing.Point(22, 357);
+            this.pnlLog.Location = new System.Drawing.Point(22, 411);
             this.pnlLog.Name = "pnlLog";
             this.pnlLog.Size = new System.Drawing.Size(276, 174);
-            this.pnlLog.TabIndex = 16;
+            this.pnlLog.TabIndex = 22;
             this.pnlLog.Visible = false;
             // 
             // txtSaida
@@ -265,7 +349,7 @@ namespace WindowsFormsApp1
             // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(244)))), ((int)(((byte)(246)))), ((int)(((byte)(248)))));
-            this.ClientSize = new System.Drawing.Size(320, 363);
+            this.ClientSize = new System.Drawing.Size(320, 417);
             this.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.Controls.Add(this.pnlLog);
             this.Controls.Add(this.chkTeste);
@@ -274,6 +358,12 @@ namespace WindowsFormsApp1
             this.Controls.Add(this.btnLimparVistaExplodida);
             this.Controls.Add(this.btnCriarAreaDefinida);
             this.Controls.Add(this.btnCriarFolhaInteira);
+            this.Controls.Add(this.chkZNegativo);
+            this.Controls.Add(this.chkZPositivo);
+            this.Controls.Add(this.chkYNegativo);
+            this.Controls.Add(this.chkYPositivo);
+            this.Controls.Add(this.chkXNegativo);
+            this.Controls.Add(this.chkXPositivo);
             this.Controls.Add(this.chkColorir);
             this.Controls.Add(this.chkLinhas);
             this.Controls.Add(this.chkGhostLinhas);
@@ -308,6 +398,12 @@ namespace WindowsFormsApp1
         private System.Windows.Forms.CheckBox chkGhostLinhas;
         private System.Windows.Forms.CheckBox chkLinhas;
         private System.Windows.Forms.CheckBox chkColorir;
+        private System.Windows.Forms.CheckBox chkXPositivo;
+        private System.Windows.Forms.CheckBox chkXNegativo;
+        private System.Windows.Forms.CheckBox chkYPositivo;
+        private System.Windows.Forms.CheckBox chkYNegativo;
+        private System.Windows.Forms.CheckBox chkZPositivo;
+        private System.Windows.Forms.CheckBox chkZNegativo;
         private System.Windows.Forms.Button btnCriarFolhaInteira;
         private System.Windows.Forms.Button btnCriarAreaDefinida;
         private System.Windows.Forms.Button btnLimparVistaExplodida;

@@ -54,8 +54,8 @@ namespace WindowsFormsApp1
         private const double TestAxisMinimumLength = 18.0;
         private const double FitScaleFactorMin = 0.20;
         private const double FitScaleFactorMax = 4.00;
-        private const int CollapsedClientHeight = 363;
-        private const int ExpandedClientHeight = 547;
+        private const int CollapsedClientHeight = 417;
+        private const int ExpandedClientHeight = 601;
 
         private bool logExpanded;
 
@@ -1153,20 +1153,72 @@ namespace WindowsFormsApp1
             return axes.ToString().Trim();
         }
 
+        private static string BuildSelectedDirectionsText(
+            bool allowXPositive,
+            bool allowXNegative,
+            bool allowYPositive,
+            bool allowYNegative,
+            bool allowZPositive,
+            bool allowZNegative)
+        {
+            StringBuilder directions = new StringBuilder();
+            if (allowXPositive)
+            {
+                directions.Append("X+ ");
+            }
+
+            if (allowXNegative)
+            {
+                directions.Append("X- ");
+            }
+
+            if (allowYPositive)
+            {
+                directions.Append("Y+ ");
+            }
+
+            if (allowYNegative)
+            {
+                directions.Append("Y- ");
+            }
+
+            if (allowZPositive)
+            {
+                directions.Append("Z+ ");
+            }
+
+            if (allowZNegative)
+            {
+                directions.Append("Z- ");
+            }
+
+            string result = directions.ToString().Trim();
+            return string.IsNullOrWhiteSpace(result) ? "(nenhum)" : result;
+        }
+
         private void CriarVistaExplodidaEmArea(bool useSelectedArea)
         {
-            bool usePlaneXY = chkPlanoXY.Checked;
-            bool usePlaneXZ = chkPlanoXZ.Checked;
-            bool usePlaneZY = chkPlanoZY.Checked;
+            bool planeZEnabled = chkPlanoXY.Checked;
+            bool planeYEnabled = chkPlanoXZ.Checked;
+            bool planeXEnabled = chkPlanoZY.Checked;
             bool ghostEnabled = chkGhostLinhas.Checked;
             bool guideLinesEnabled = chkLinhas.Checked;
             bool colorirEnabled = chkColorir.Checked;
             bool testEnabled = chkTeste.Checked;
+            bool allowXPositive = chkXPositivo.Checked;
+            bool allowXNegative = chkXNegativo.Checked;
+            bool allowYPositive = chkYPositivo.Checked;
+            bool allowYNegative = chkYNegativo.Checked;
+            bool allowZPositive = chkZPositivo.Checked;
+            bool allowZNegative = chkZNegativo.Checked;
+            bool usePlaneZY = planeXEnabled || allowXPositive || allowXNegative;
+            bool usePlaneXZ = planeYEnabled || allowYPositive || allowYNegative;
+            bool usePlaneXY = planeZEnabled || allowZPositive || allowZNegative;
 
             if (!usePlaneXY && !usePlaneXZ && !usePlaneZY)
             {
-                UpdateStatus("Falha: selecione pelo menos um eixo (X/Y/Z).", Color.DarkOrange);
-                SetOutput("Marque ao menos um checkbox de eixo antes de criar a vista ajustada.");
+                UpdateStatus("Falha: selecione pelo menos um eixo ou sentido.", Color.DarkOrange);
+                SetOutput("Marque ao menos um checkbox em X/Y/Z ou X+/X-/Y+/Y-/Z+/Z- antes de criar a vista ajustada.");
                 return;
             }
 
@@ -1303,6 +1355,7 @@ namespace WindowsFormsApp1
                 int movedByXY;
                 int movedByXZ;
                 int movedByZY;
+                int blockedByDirection = 0;
                 bool modelLayoutUsed = ComputeExplodedOffsetsByPlanes(
                     sourceView,
                     partPlans,
@@ -1324,6 +1377,16 @@ namespace WindowsFormsApp1
                     centersFromModel = Math.Max(centersFromModel, fallbackCenters);
                     fallbackLayoutUsed = true;
                 }
+
+                ApplyDirectionalMovementFilters(
+                    partPlans,
+                    allowXPositive,
+                    allowXNegative,
+                    allowYPositive,
+                    allowYNegative,
+                    allowZPositive,
+                    allowZNegative,
+                    out blockedByDirection);
 
                 object anchorOrigin = GetPropertyValue(sourceView, "Origin");
                 double sourceOriginX;
@@ -1429,7 +1492,7 @@ namespace WindowsFormsApp1
                 {
                     ExplodedPartPlan plan = partPlans[i];
 
-                    if (ghostEnabled && !plan.IsMainPart)
+                    if (ghostEnabled && !plan.IsMainPart && IsPlanActuallyDisplaced(plan))
                     {
                         ghostPairsRequested++;
 
@@ -1633,7 +1696,7 @@ namespace WindowsFormsApp1
                     created++;
                     fitViews.Add(newView);
 
-                    if (guideLinesEnabled && !plan.IsMainPart)
+                    if (guideLinesEnabled && !plan.IsMainPart && IsPlanActuallyDisplaced(plan))
                     {
                         guideLinesRequested++;
                         if (TryCreateGuideLineForPlan(
@@ -1710,6 +1773,13 @@ namespace WindowsFormsApp1
                 report.AppendLine("Linhas: " + (guideLinesEnabled ? "ligado" : "desligado"));
                 report.AppendLine("Colorir: " + (colorirEnabled ? "ligado" : "desligado"));
                 report.AppendLine("Teste: " + (testEnabled ? "ligado" : "desligado"));
+                report.AppendLine("Sentidos ativos: " + BuildSelectedDirectionsText(
+                    allowXPositive,
+                    allowXNegative,
+                    allowYPositive,
+                    allowYNegative,
+                    allowZPositive,
+                    allowZNegative));
                 report.AppendLine("Modo: " + targetAreaSource);
                 report.AppendLine("Area alvo usada: " + targetAreaSource);
                 report.AppendLine("Objetos selecionados no desenho: " + selectedObjectCount);
@@ -1724,6 +1794,7 @@ namespace WindowsFormsApp1
                 report.AppendLine("Linhas guia antigas removidas: " + removedGuideLines);
                 report.AppendLine("Base de posicionamento: " + (modelLayoutUsed ? "modelo (explosao por planos)" : "fallback"));
                 report.AppendLine("Fallback usado: " + (fallbackLayoutUsed ? "sim" : "nao"));
+                report.AppendLine("Pecas bloqueadas por sentido: " + blockedByDirection);
                 report.AppendLine("Centros lidos do modelo: " + centersFromModel);
                 report.AppendLine("Movimentos aplicados por plano:");
                 report.AppendLine("  xy: " + movedByXY);
@@ -1843,6 +1914,173 @@ namespace WindowsFormsApp1
             }
 
             return 0;
+        }
+
+        private static void ApplyDirectionalMovementFilters(
+            List<ExplodedPartPlan> plans,
+            bool allowXPositive,
+            bool allowXNegative,
+            bool allowYPositive,
+            bool allowYNegative,
+            bool allowZPositive,
+            bool allowZNegative,
+            out int blockedCount)
+        {
+            blockedCount = 0;
+            if (plans == null || plans.Count == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < plans.Count; i++)
+            {
+                ExplodedPartPlan plan = plans[i];
+                if (plan == null || plan.IsMainPart)
+                {
+                    continue;
+                }
+
+                if (IsPlanMovementEnabledByDirection(
+                        plan,
+                        allowXPositive,
+                        allowXNegative,
+                        allowYPositive,
+                        allowYNegative,
+                        allowZPositive,
+                        allowZNegative))
+                {
+                    continue;
+                }
+
+                plan.OffsetX = plan.OriginalOffsetX;
+                plan.OffsetY = plan.OriginalOffsetY;
+                blockedCount++;
+            }
+        }
+
+        private static bool IsPlanMovementEnabledByDirection(
+            ExplodedPartPlan plan,
+            bool allowXPositive,
+            bool allowXNegative,
+            bool allowYPositive,
+            bool allowYNegative,
+            bool allowZPositive,
+            bool allowZNegative)
+        {
+            if (plan == null || plan.IsMainPart)
+            {
+                return true;
+            }
+
+            int axisCode;
+            int axisSide;
+            if (!TryGetPlanDominantDirection(plan, out axisCode, out axisSide))
+            {
+                return true;
+            }
+
+            if (axisSide > 0)
+            {
+                if (axisCode == 1)
+                {
+                    return allowXPositive;
+                }
+
+                if (axisCode == 2)
+                {
+                    return allowYPositive;
+                }
+
+                if (axisCode == 3)
+                {
+                    return allowZPositive;
+                }
+            }
+
+            if (axisSide < 0)
+            {
+                if (axisCode == 1)
+                {
+                    return allowXNegative;
+                }
+
+                if (axisCode == 2)
+                {
+                    return allowYNegative;
+                }
+
+                if (axisCode == 3)
+                {
+                    return allowZNegative;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool TryGetPlanDominantDirection(ExplodedPartPlan plan, out int axisCode, out int axisSide)
+        {
+            axisCode = 0;
+            axisSide = 0;
+            if (plan == null)
+            {
+                return false;
+            }
+
+            if ((plan.ColorPlane == 3 || plan.IsOtherPlane) && plan.SideOfZYPlane != 0)
+            {
+                axisCode = 1;
+                axisSide = plan.SideOfZYPlane;
+                return true;
+            }
+
+            if (plan.ColorPlane == 2 && plan.SideOfXZPlane != 0)
+            {
+                axisCode = 2;
+                axisSide = plan.SideOfXZPlane;
+                return true;
+            }
+
+            if (plan.ColorPlane == 1 && plan.SideOfXYPlane != 0)
+            {
+                axisCode = 3;
+                axisSide = plan.SideOfXYPlane;
+                return true;
+            }
+
+            if (plan.SideOfZYPlane != 0)
+            {
+                axisCode = 1;
+                axisSide = plan.SideOfZYPlane;
+                return true;
+            }
+
+            if (plan.SideOfXZPlane != 0)
+            {
+                axisCode = 2;
+                axisSide = plan.SideOfXZPlane;
+                return true;
+            }
+
+            if (plan.SideOfXYPlane != 0)
+            {
+                axisCode = 3;
+                axisSide = plan.SideOfXYPlane;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsPlanActuallyDisplaced(ExplodedPartPlan plan)
+        {
+            if (plan == null)
+            {
+                return false;
+            }
+
+            return Math.Abs(plan.OffsetX - plan.OriginalOffsetX) > 1e-6
+                || Math.Abs(plan.OffsetY - plan.OriginalOffsetY) > 1e-6;
         }
 
         private static bool TryCreateGuideLineForPlan(
@@ -2556,6 +2794,7 @@ namespace WindowsFormsApp1
             }
 
             object textObject = null;
+            string objectName = TestAxisNamePrefix + labelText + "_" + Guid.NewGuid().ToString("N");
             if (textAttributes != null)
             {
                 try
@@ -2585,10 +2824,13 @@ namespace WindowsFormsApp1
                 return false;
             }
 
+            SetPropertyValue(textAttributes, "Name", objectName);
             if (textAttributes != null)
             {
                 SetPropertyValue(textObject, "Attributes", textAttributes, "Tekla.Structures.Drawing.Text");
             }
+
+            SetPropertyValue(textObject, "Name", objectName);
 
             bool? inserted = InvokeBoolMethod(textObject, "Insert");
             return inserted.HasValue && inserted.Value;
@@ -5215,38 +5457,32 @@ namespace WindowsFormsApp1
             {
                 return 0;
             }
+            List<object> linesToDelete = new List<object>();
+            CollectHelperOverlaysFromContainer(sheet, linesToDelete);
 
             object allObjects = InvokeParameterlessMethod(sheet, "GetAllObjects");
-            if (allObjects == null)
+            if (allObjects != null)
             {
-                return 0;
-            }
-
-            MethodInfo moveNext = allObjects.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
-            PropertyInfo current = allObjects.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
-            if (moveNext == null || current == null)
-            {
-                return 0;
-            }
-
-            List<object> linesToDelete = new List<object>();
-            while (true)
-            {
-                object moved = moveNext.Invoke(allObjects, null);
-                if (!(moved is bool) || !(bool)moved)
+                MethodInfo moveNext = allObjects.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
+                PropertyInfo current = allObjects.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
+                if (moveNext != null && current != null)
                 {
-                    break;
-                }
+                    while (true)
+                    {
+                        object moved = moveNext.Invoke(allObjects, null);
+                        if (!(moved is bool) || !(bool)moved)
+                        {
+                            break;
+                        }
 
-                object drawingObject = current.GetValue(allObjects, null);
-                if (!IsHelperOverlayObject(drawingObject))
-                {
-                    continue;
-                }
+                        object drawingObject = current.GetValue(allObjects, null);
+                        if (!IsViewObject(drawingObject, null))
+                        {
+                            continue;
+                        }
 
-                if (IsGuideLineObject(drawingObject))
-                {
-                    linesToDelete.Add(drawingObject);
+                        CollectHelperOverlaysFromContainer(drawingObject, linesToDelete);
+                    }
                 }
             }
 
@@ -5261,6 +5497,53 @@ namespace WindowsFormsApp1
             }
 
             return removed;
+        }
+
+        private static void CollectHelperOverlaysFromContainer(object container, List<object> targets)
+        {
+            if (container == null || targets == null)
+            {
+                return;
+            }
+
+            object allObjects = InvokeParameterlessMethod(container, "GetAllObjects")
+                ?? InvokeParameterlessMethod(container, "GetObjects");
+            if (allObjects == null)
+            {
+                return;
+            }
+
+            MethodInfo moveNext = allObjects.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo current = allObjects.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
+            if (moveNext == null || current == null)
+            {
+                return;
+            }
+
+            while (true)
+            {
+                object moved = moveNext.Invoke(allObjects, null);
+                if (!(moved is bool) || !(bool)moved)
+                {
+                    break;
+                }
+
+                object drawingObject = current.GetValue(allObjects, null);
+                if (!IsHelperOverlayObject(drawingObject))
+                {
+                    continue;
+                }
+
+                if (!IsGuideLineObject(drawingObject))
+                {
+                    continue;
+                }
+
+                if (!targets.Contains(drawingObject))
+                {
+                    targets.Add(drawingObject);
+                }
+            }
         }
 
         private static bool IsHelperOverlayObject(object drawingObject)
@@ -5319,19 +5602,7 @@ namespace WindowsFormsApp1
             {
                 return false;
             }
-
-            object attributes = GetPropertyValue(drawingObject, "Attributes");
-            object font = attributes != null ? GetPropertyValue(attributes, "Font") : null;
-            if (font == null)
-            {
-                return true;
-            }
-
-            int colorIndex;
-            return TryReadGuideLineColorIndex(font, out colorIndex)
-                && (colorIndex == OtherPlaneContourColor
-                    || colorIndex == SideNegativeContourColor
-                    || colorIndex == SidePositiveContourColor);
+            return true;
         }
 
         private static bool IsAxisLabelText(string text)
