@@ -53,6 +53,11 @@ namespace WindowsFormsApp1
 
         private bool logExpanded;
         private Control orbitPreviewControl;
+        private bool previewCacheReady;
+        private List<ExplodedPartPlan> previewCachedPartPlans = new List<ExplodedPartPlan>();
+        private object previewCachedViewCoordinateSystem;
+        private object previewCachedDisplayCoordinateSystem;
+        private double previewCachedSourceScale = 1.0;
 
         private static string[] BuildTeklaDllCandidates(string dllName, bool includePlugins)
         {
@@ -311,40 +316,344 @@ namespace WindowsFormsApp1
                 double anchorY = (rectMinY + rectMaxY) * 0.5;
                 double anchorZ = sheetOriginZ;
 
-                double cosYaw = Math.Cos(yawRadians);
-                double sinYaw = Math.Sin(yawRadians);
-                double cosPitch = Math.Cos(pitchRadians);
-                double sinPitch = Math.Sin(pitchRadians);
+                object model = CreateModelInstance();
+                if (model == null)
+                {
+                    UpdateStatus("Falha: API de model do Tekla nao encontrada.", Color.DarkRed);
+                    SetOutput("Nao foi possivel carregar Tekla.Structures.Model.Model.");
+                    return;
+                }
 
-                double axisXDirX = cosYaw;
-                double axisXDirY = sinPitch * sinYaw;
-                double axisYDirX = 0.0;
-                double axisYDirY = cosPitch;
-                double axisZDirX = sinYaw;
-                double axisZDirY = -sinPitch * cosYaw;
+                bool? modelConnected = InvokeBoolMethod(model, "GetConnectionStatus");
+                if (!modelConnected.HasValue || !modelConnected.Value)
+                {
+                    UpdateStatus("Falha: Tekla aberto, mas sem conexao com o modelo.", Color.DarkOrange);
+                    SetOutput("Conecte-se ao modelo no Tekla antes de usar Criar eixos.");
+                    return;
+                }
+
+                int inspectedViews = 0;
+                int candidateViews = 0;
+                List<ExplodedPartPlan> partPlans = CollectPartPlansFromDrawing(activeDrawing, out inspectedViews, out candidateViews);
+                if (partPlans.Count == 0)
+                {
+                    UpdateStatus("Falha: nao foi possivel ler as pecas do conjunto no desenho ativo.", Color.DarkOrange);
+                    SetOutput("Nenhum ModelIdentifier de parte foi encontrado no contexto do desenho ativo.");
+                    return;
+                }
+
+                ExplodedPartPlan mainPlan = null;
+                double bestMainScore = double.MinValue;
+                for (int i = 0; i < partPlans.Count; i++)
+                {
+                    ExplodedPartPlan plan = partPlans[i];
+                    double centerX;
+                    double centerY;
+                    double centerZ;
+                    double sizeScore;
+                    bool hasBounds;
+                    double minX;
+                    double minY;
+                    double minZ;
+                    double maxX;
+                    double maxY;
+                    double maxZ;
+                    if (!TryGetModelObjectCenterAndSize(
+                            model,
+                            plan.Identifier,
+                            out centerX,
+                            out centerY,
+                            out centerZ,
+                            out sizeScore,
+                            out hasBounds,
+                            out minX,
+                            out minY,
+                            out minZ,
+                            out maxX,
+                            out maxY,
+                            out maxZ))
+                    {
+                        continue;
+                    }
+
+                    plan.ModelSizeScore = sizeScore;
+                    if (sizeScore > bestMainScore)
+                    {
+                        bestMainScore = sizeScore;
+                        mainPlan = plan;
+                    }
+                }
+
+                if (mainPlan == null || mainPlan.Identifier == null)
+                {
+                    UpdateStatus("Falha: nao foi possivel identificar a peca principal.", Color.DarkOrange);
+                    SetOutput("Nao foi possivel determinar a peca principal para centralizar a vista.");
+                    return;
+                }
+
+                for (int i = 0; i < partPlans.Count; i++)
+                {
+                    partPlans[i].IsMainPart = ReferenceEquals(partPlans[i], mainPlan);
+                }
+
+                object viewCoordinateSystem = previewCachedViewCoordinateSystem;
+                object displayCoordinateSystem = previewCachedDisplayCoordinateSystem;
+                bool coordinateSystemFromMainPart = false;
+                bool coordinateSystemFromPreviewCamera = false;
+
+                double previewAxisXx;
+                double previewAxisXy;
+                double previewAxisXz;
+                double previewAxisYx;
+                double previewAxisYy;
+                double previewAxisYz;
+                if (TryGetPreviewDisplayAxesForView(
+                        null,
+                        out previewAxisXx,
+                        out previewAxisXy,
+                        out previewAxisXz,
+                        out previewAxisYx,
+                        out previewAxisYy,
+                        out previewAxisYz))
+                {
+                    object previewCameraCoordinateSystem = CreateCoordinateSystem(
+                        0.0,
+                        0.0,
+                        0.0,
+                        previewAxisXx,
+                        previewAxisXy,
+                        previewAxisXz,
+                        previewAxisYx,
+                        previewAxisYy,
+                        previewAxisYz);
+                    if (previewCameraCoordinateSystem != null)
+                    {
+                        viewCoordinateSystem = previewCameraCoordinateSystem;
+                        displayCoordinateSystem = previewCameraCoordinateSystem;
+                        coordinateSystemFromPreviewCamera = true;
+                    }
+                }
+
+                if (viewCoordinateSystem == null || displayCoordinateSystem == null)
+                {
+                    double localAxisXx;
+                    double localAxisXy;
+                    double localAxisXz;
+                    double localAxisYx;
+                    double localAxisYy;
+                    double localAxisYz;
+                    double localAxisZx;
+                    double localAxisZy;
+                    double localAxisZz;
+                    if (TryGetMainLocalAxes(
+                            model,
+                            mainPlan.Identifier,
+                            out localAxisXx,
+                            out localAxisXy,
+                            out localAxisXz,
+                            out localAxisYx,
+                            out localAxisYy,
+                            out localAxisYz,
+                            out localAxisZx,
+                            out localAxisZy,
+                            out localAxisZz))
+                    {
+                        object mainPartCoordinateSystem = CreateCoordinateSystem(
+                            0.0,
+                            0.0,
+                            0.0,
+                            localAxisXx,
+                            localAxisXy,
+                            localAxisXz,
+                            localAxisYx,
+                            localAxisYy,
+                            localAxisYz);
+                        if (mainPartCoordinateSystem != null)
+                        {
+                            if (viewCoordinateSystem == null)
+                            {
+                                viewCoordinateSystem = mainPartCoordinateSystem;
+                            }
+
+                            if (displayCoordinateSystem == null)
+                            {
+                                displayCoordinateSystem = mainPartCoordinateSystem;
+                            }
+
+                            coordinateSystemFromMainPart = true;
+                        }
+                    }
+                }
+
+                if (viewCoordinateSystem == null)
+                {
+                    viewCoordinateSystem = CreateGlobalCoordinateSystem();
+                }
+
+                if (displayCoordinateSystem == null)
+                {
+                    displayCoordinateSystem = CreateGlobalCoordinateSystem();
+                }
+
+                if (viewCoordinateSystem == null || displayCoordinateSystem == null)
+                {
+                    UpdateStatus("Falha: coordenadas base indisponiveis para criar a vista.", Color.DarkRed);
+                    SetOutput("Nao foi possivel obter ou criar ViewCoordinateSystem/DisplayCoordinateSystem.");
+                    return;
+                }
+
+                int removedViews = DeleteExistingExplodedViews(sheet, ExplodedViewPrefix);
+                int removedGuideLines = DeleteExistingGuideLines(sheet);
+                int removedAxes = DeleteExistingTestAxes(sheet);
+
+                ArrayList partIdentifiers = new ArrayList();
+                HashSet<string> includedIds = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < partPlans.Count; i++)
+                {
+                    ExplodedPartPlan plan = partPlans[i];
+                    if (plan == null || plan.Identifier == null)
+                    {
+                        continue;
+                    }
+
+                    string key = !string.IsNullOrWhiteSpace(plan.IdentifierKey)
+                        ? plan.IdentifierKey
+                        : GetIdentifierKey(plan.Identifier);
+                    if (string.IsNullOrWhiteSpace(key))
+                    {
+                        key = "idx_" + i.ToString();
+                    }
+
+                    if (includedIds.Add(key))
+                    {
+                        partIdentifiers.Add(plan.Identifier);
+                    }
+                }
+
+                int identifiersInView = partIdentifiers.Count;
+                if (identifiersInView == 0)
+                {
+                    UpdateStatus("Falha: nao foi possivel montar a lista de pecas para criar a vista.", Color.DarkOrange);
+                    SetOutput("As pecas foram identificadas, mas nenhum ModelIdentifier valido foi incluido na vista.");
+                    return;
+                }
+
+                bool mainViewAutoIsoApplied;
+                double mainViewScale = previewCachedSourceScale > 0.0 ? previewCachedSourceScale : 1.0;
+                object mainView = CreatePartListViewForFit(
+                    sheet,
+                    viewCoordinateSystem,
+                    displayCoordinateSystem,
+                    partIdentifiers,
+                    mainViewScale,
+                    ExplodedViewPrefix + "SET",
+                    out mainViewAutoIsoApplied);
+
+                bool mainViewRotationApplied = false;
+                bool mainViewPositioned = false;
+                bool fitApplied = false;
+                double fitFactorApplied;
+                int fitAdjustedViews;
+
+                if (mainView != null)
+                {
+                    if (!coordinateSystemFromPreviewCamera)
+                    {
+                        const double ToDegrees = 180.0 / Math.PI;
+                        RotateViewToAngles(mainView, -pitchRadians * ToDegrees, -yawRadians * ToDegrees);
+                        mainViewRotationApplied = true;
+                    }
+                    mainViewPositioned = ForceViewCenterToTarget(mainView, anchorX, anchorY, anchorZ);
+
+                    if (mainViewPositioned)
+                    {
+                        List<object> fitViews = new List<object>();
+                        fitViews.Add(mainView);
+
+                        Dictionary<string, double> fitViewScales = new Dictionary<string, double>();
+                        fitViewScales[GetDrawingObjectKey(mainView)] = mainViewScale;
+
+                        fitApplied = TryFitCreatedViewsIntoRectangle(
+                            fitViews,
+                            fitViewScales,
+                            rectMinX,
+                            rectMinY,
+                            rectMaxX,
+                            rectMaxY,
+                            anchorZ,
+                            out fitFactorApplied,
+                            out fitAdjustedViews);
+                    }
+                }
 
                 double rectWidth = Math.Max(1.0, Math.Abs(rectMaxX - rectMinX));
                 double rectHeight = Math.Max(1.0, Math.Abs(rectMaxY - rectMinY));
                 double axisLength = Math.Max(TestAxisMinimumLength, Math.Min(rectWidth, rectHeight) * 0.38);
+                double cosYaw = Math.Cos(yawRadians);
+                double sinYaw = Math.Sin(yawRadians);
+                double cosPitch = Math.Cos(pitchRadians);
+                double sinPitch = Math.Sin(pitchRadians);
+                double previewAxisXDirX = cosYaw;
+                double previewAxisXDirY = sinPitch * sinYaw;
+                double previewAxisYDirX = 0.0;
+                double previewAxisYDirY = cosPitch;
+                double previewAxisZDirX = sinYaw;
+                double previewAxisZDirY = -sinPitch * cosYaw;
 
-                int removedAxes = DeleteExistingTestAxes(sheet);
-                int axisCreated = TryCreatePreviewAlignedTestAxesOverlay(
-                    sheet,
-                    anchorX,
-                    anchorY,
-                    anchorZ,
-                    axisLength,
-                    axisXDirX,
-                    axisXDirY,
-                    axisYDirX,
-                    axisYDirY,
-                    axisZDirX,
-                    axisZDirY,
-                    true,
-                    true,
-                    true);
+                int axisCreated = 0;
+                if (mainView != null)
+                {
+                    double viewScaleForAxes = GetSourceViewScale(mainView);
+                    if (!(viewScaleForAxes > 0.0))
+                    {
+                        viewScaleForAxes = mainViewScale > 0.0 ? mainViewScale : 1.0;
+                    }
 
-                if (removedAxes > 0 || axisCreated > 0)
+                    axisCreated = TryCreateMainPartTestAxesOverlay(
+                        sheet,
+                        mainView,
+                        model,
+                        partPlans,
+                        viewScaleForAxes,
+                        anchorX,
+                        anchorY,
+                        anchorZ,
+                        true,
+                        true,
+                        true,
+                        true,
+                        previewAxisXDirX,
+                        previewAxisXDirY,
+                        previewAxisYDirX,
+                        previewAxisYDirY,
+                        previewAxisZDirX,
+                        previewAxisZDirY);
+                }
+
+                if (axisCreated <= 0)
+                {
+                    axisCreated = TryCreatePreviewAlignedTestAxesOverlay(
+                        sheet,
+                        anchorX,
+                        anchorY,
+                        anchorZ,
+                        axisLength,
+                        previewAxisXDirX,
+                        previewAxisXDirY,
+                        previewAxisYDirX,
+                        previewAxisYDirY,
+                        previewAxisZDirX,
+                        previewAxisZDirY,
+                        true,
+                        true,
+                        true);
+                }
+
+                if (removedViews > 0
+                    || removedGuideLines > 0
+                    || removedAxes > 0
+                    || mainView != null
+                    || axisCreated > 0)
                 {
                     CommitActiveDrawingChanges(activeDrawing);
                     InvokeParameterlessMethod(drawingHandler, "SaveActiveDrawing");
@@ -353,25 +662,43 @@ namespace WindowsFormsApp1
                 StringBuilder report = new StringBuilder();
                 report.AppendLine("Criar eixos (sem explosao)");
                 report.AppendLine("--------------------------");
+                report.AppendLine("Conjunto lido do desenho ativo.");
+                report.AppendLine("Vistas inspecionadas: " + inspectedViews);
+                report.AppendLine("Vistas com pecas: " + candidateViews);
+                report.AppendLine("Pecas candidatas: " + partPlans.Count);
+                report.AppendLine("Pecas incluidas na vista: " + identifiersInView);
+                report.AppendLine("Peca principal: " + (string.IsNullOrWhiteSpace(mainPlan.IdentifierKey) ? GetIdentifierKey(mainPlan.Identifier) : mainPlan.IdentifierKey));
                 report.AppendLine("Centro usado: centro da folha");
                 report.AppendLine("Centro (X,Y): " + anchorX.ToString("0.###") + ", " + anchorY.ToString("0.###"));
                 report.AppendLine("Area da folha: W=" + rectWidth.ToString("0.###") + " H=" + rectHeight.ToString("0.###"));
+                report.AppendLine("Sistema de coordenadas base: "
+                    + (previewCachedDisplayCoordinateSystem != null ? "cache do preview" : (coordinateSystemFromMainPart ? "eixo local da peca principal" : "modelo global")));
+                report.AppendLine("Sistema de coordenadas da vista principal: " + (coordinateSystemFromPreviewCamera ? "camera do preview" : "base + rotacao por angulos"));
+                report.AppendLine("Vistas auto antigas removidas: " + removedViews);
+                report.AppendLine("Linhas guia antigas removidas: " + removedGuideLines);
+                report.AppendLine("Eixos antigos removidos: " + removedAxes);
+                report.AppendLine("Vista do conjunto criada: " + (mainView != null ? "sim" : "nao"));
+                report.AppendLine("Rotacao preview aplicada na vista principal: " + (mainViewRotationApplied ? "sim" : "nao"));
+                report.AppendLine("Vista do conjunto centralizada: " + (mainViewPositioned ? "sim" : "nao"));
                 report.AppendLine("Comprimento dos eixos: " + axisLength.ToString("0.###"));
                 report.AppendLine("Rotacao camera preview: yaw=" + (yawRadians * (180.0 / Math.PI)).ToString("0.###")
                     + "deg, pitch=" + (pitchRadians * (180.0 / Math.PI)).ToString("0.###") + "deg");
-                report.AppendLine("Eixos antigos removidos: " + removedAxes);
                 report.AppendLine("Eixos criados: " + axisCreated);
                 report.AppendLine();
-                report.AppendLine("Obs.: eixos alinhados com a camera atual do preview 3D.");
+                report.AppendLine("Obs.: eixos e vista do conjunto alinhados com a camera atual do preview 3D.");
                 SetOutput(report.ToString());
 
-                if (axisCreated > 0)
+                if (axisCreated > 0 && mainViewPositioned)
                 {
-                    UpdateStatus("Sucesso: eixos criados no centro da folha com rotacao do preview.", Color.DarkGreen);
+                    UpdateStatus("Sucesso: eixos criados e conjunto centralizado com rotacao do preview.", Color.DarkGreen);
+                }
+                else if (axisCreated > 0 && mainView != null)
+                {
+                    UpdateStatus("Parcial: eixos criados, mas falha ao centralizar a vista do conjunto.", Color.DarkOrange);
                 }
                 else
                 {
-                    UpdateStatus("Falha: nao foi possivel criar os eixos.", Color.DarkOrange);
+                    UpdateStatus("Falha: nao foi possivel criar eixos e vista do conjunto no centro.", Color.DarkOrange);
                 }
             }
             catch (Exception ex)
@@ -471,6 +798,110 @@ namespace WindowsFormsApp1
             return true;
         }
 
+        private bool TryGetPreviewDisplayAxesForView(
+            object sourceView,
+            out double axisXx,
+            out double axisXy,
+            out double axisXz,
+            out double axisYx,
+            out double axisYy,
+            out double axisYz)
+        {
+            axisXx = 1.0;
+            axisXy = 0.0;
+            axisXz = 0.0;
+            axisYx = 0.0;
+            axisYy = 1.0;
+            axisYz = 0.0;
+
+            if (sourceView == null)
+            {
+                // Sem vista: usa eixos globais como base e, se houver cache valido de preview, tenta usar
+                // o DisplayCoordinateSystem salvo.
+            }
+
+            double yawRadians;
+            double pitchRadians;
+            if (!TryGetPreviewCameraAngles(out yawRadians, out pitchRadians))
+            {
+                return false;
+            }
+
+            double viewAxisXx = 1.0;
+            double viewAxisXy = 0.0;
+            double viewAxisXz = 0.0;
+            double viewAxisYx = 0.0;
+            double viewAxisYy = 1.0;
+            double viewAxisYz = 0.0;
+            bool hasViewAxes = false;
+
+            if (sourceView != null)
+            {
+                hasViewAxes = TryGetViewDisplayAxes(
+                    sourceView,
+                    out viewAxisXx,
+                    out viewAxisXy,
+                    out viewAxisXz,
+                    out viewAxisYx,
+                    out viewAxisYy,
+                    out viewAxisYz);
+            }
+            else if (previewCachedDisplayCoordinateSystem != null)
+            {
+                object cachedAxisX = GetPropertyValue(previewCachedDisplayCoordinateSystem, "AxisX");
+                object cachedAxisY = GetPropertyValue(previewCachedDisplayCoordinateSystem, "AxisY");
+                hasViewAxes = TryGetXYZ(cachedAxisX, out viewAxisXx, out viewAxisXy, out viewAxisXz)
+                    && TryGetXYZ(cachedAxisY, out viewAxisYx, out viewAxisYy, out viewAxisYz)
+                    && NormalizeVector3D(ref viewAxisXx, ref viewAxisXy, ref viewAxisXz)
+                    && NormalizeVector3D(ref viewAxisYx, ref viewAxisYy, ref viewAxisYz);
+            }
+
+            if (!hasViewAxes)
+            {
+                viewAxisXx = 1.0;
+                viewAxisXy = 0.0;
+                viewAxisXz = 0.0;
+                viewAxisYx = 0.0;
+                viewAxisYy = 1.0;
+                viewAxisYz = 0.0;
+            }
+
+            double viewAxisZx = (viewAxisXy * viewAxisYz) - (viewAxisXz * viewAxisYy);
+            double viewAxisZy = (viewAxisXz * viewAxisYx) - (viewAxisXx * viewAxisYz);
+            double viewAxisZz = (viewAxisXx * viewAxisYy) - (viewAxisXy * viewAxisYx);
+            if (!NormalizeVector3D(ref viewAxisZx, ref viewAxisZy, ref viewAxisZz))
+            {
+                return false;
+            }
+
+            double cosYaw = Math.Cos(yawRadians);
+            double sinYaw = Math.Sin(yawRadians);
+            double cosPitch = Math.Cos(pitchRadians);
+            double sinPitch = Math.Sin(pitchRadians);
+
+            double localRightX = cosYaw;
+            double localRightY = 0.0;
+            double localRightZ = sinYaw;
+            double localUpX = sinPitch * sinYaw;
+            double localUpY = cosPitch;
+            double localUpZ = -sinPitch * cosYaw;
+
+            axisXx = (localRightX * viewAxisXx) + (localRightY * viewAxisYx) + (localRightZ * viewAxisZx);
+            axisXy = (localRightX * viewAxisXy) + (localRightY * viewAxisYy) + (localRightZ * viewAxisZy);
+            axisXz = (localRightX * viewAxisXz) + (localRightY * viewAxisYz) + (localRightZ * viewAxisZz);
+
+            axisYx = (localUpX * viewAxisXx) + (localUpY * viewAxisYx) + (localUpZ * viewAxisZx);
+            axisYy = (localUpX * viewAxisXy) + (localUpY * viewAxisYy) + (localUpZ * viewAxisZy);
+            axisYz = (localUpX * viewAxisXz) + (localUpY * viewAxisYz) + (localUpZ * viewAxisZz);
+
+            if (!NormalizeVector3D(ref axisXx, ref axisXy, ref axisXz)
+                || !NormalizeVector3D(ref axisYx, ref axisYy, ref axisYz))
+            {
+                return false;
+            }
+            return true;
+        }
+
         private void ApplyFallbackRotation(object view, bool autoIsoApplied, ref int fallbackRotationCount)
         {
             if (view == null)
@@ -502,6 +933,10 @@ namespace WindowsFormsApp1
         {
             List<OrbitToolForm.PreviewPart> previewParts = new List<OrbitToolForm.PreviewPart>();
             summaryText = "Preview 3D indisponivel.";
+            object previewWorkPlaneHandler = null;
+            object previewPreviousTransformationPlane = null;
+            bool previewGlobalPlaneApplied = false;
+            string previewTransformationPlaneNote = "nao alterado";
 
             try
             {
@@ -519,56 +954,13 @@ namespace WindowsFormsApp1
                     return previewParts;
                 }
 
-                object sourceView = null;
-                string sourceDescription = "vista selecionada";
-                int selectedObjectCount;
-                sourceView = TryGetSelectedView(drawingHandler, out selectedObjectCount);
-
+                string sourceDescription = "conjunto do desenho ativo";
                 int inspectedViews = 0;
                 int candidateViews = 0;
-                if (sourceView == null)
-                {
-                    object sheet = InvokeParameterlessMethod(activeDrawing, "GetSheet");
-                    if (sheet != null)
-                    {
-                        string sourceViewName;
-                        double sourceIsoScore;
-                        if (TryFindBestIsometricViewInSheet(
-                                sheet,
-                                out sourceView,
-                                out inspectedViews,
-                                out candidateViews,
-                                out sourceViewName,
-                                out sourceIsoScore)
-                            && sourceView != null)
-                        {
-                            sourceDescription = string.IsNullOrWhiteSpace(sourceViewName)
-                                ? "vista detectada automaticamente"
-                                : "vista detectada automaticamente (" + sourceViewName + ")";
-                        }
-                    }
-                }
-
-                if (sourceView == null)
-                {
-                    summaryText = "Nenhuma vista valida foi encontrada no desenho ativo para montar o preview.";
-                    return previewParts;
-                }
-
-                List<ExplodedPartPlan> partPlans = CollectPartPlansFromView(sourceView);
+                List<ExplodedPartPlan> partPlans = CollectPartPlansFromDrawing(activeDrawing, out inspectedViews, out candidateViews);
                 if (partPlans.Count == 0)
                 {
-                    int mergedInspectedViews;
-                    int mergedCandidateViews;
-                    partPlans = CollectPartPlansFromDrawing(activeDrawing, out mergedInspectedViews, out mergedCandidateViews);
-                    sourceDescription = "desenho ativo (conjunto de vistas)";
-                    inspectedViews = Math.Max(inspectedViews, mergedInspectedViews);
-                    candidateViews = Math.Max(candidateViews, mergedCandidateViews);
-                }
-
-                if (partPlans.Count == 0)
-                {
-                    summaryText = "Nenhuma peca legivel foi encontrada nas vistas do desenho ativo.";
+                    summaryText = "Nenhuma peca legivel foi encontrada no contexto do desenho ativo.";
                     return previewParts;
                 }
 
@@ -579,46 +971,25 @@ namespace WindowsFormsApp1
                     return previewParts;
                 }
 
-                int insertedCount = 0;
-                int selectedCount = partPlans.Count;
-                int mainPartIndex = -1;
-                double bestMainScore = double.MinValue;
-
-                double viewOriginX;
-                double viewOriginY;
-                double viewOriginZ;
-                bool hasViewOrigin = TryGetXYZ(GetPropertyValue(sourceView, "Origin"), out viewOriginX, out viewOriginY, out viewOriginZ);
-
-                double axisXx;
-                double axisXy;
-                double axisXz;
-                double axisYx;
-                double axisYy;
-                double axisYz;
-                bool hasViewAxes = TryGetViewDisplayAxes(
-                    sourceView,
-                    out axisXx,
-                    out axisXy,
-                    out axisXz,
-                    out axisYx,
-                    out axisYy,
-                    out axisYz);
-                double axisZx = 0.0;
-                double axisZy = 0.0;
-                double axisZz = 1.0;
-                bool useViewLocalCoordinates = false;
-                if (hasViewOrigin && hasViewAxes)
+                bool? modelConnected = InvokeBoolMethod(model, "GetConnectionStatus");
+                if (!modelConnected.HasValue || !modelConnected.Value)
                 {
-                    axisZx = (axisXy * axisYz) - (axisXz * axisYy);
-                    axisZy = (axisXz * axisYx) - (axisXx * axisYz);
-                    axisZz = (axisXx * axisYy) - (axisXy * axisYx);
-                    useViewLocalCoordinates = NormalizeVector3D(ref axisZx, ref axisZy, ref axisZz);
+                    summaryText = "Falha: Tekla aberto, mas sem conexao com o modelo.";
+                    return previewParts;
                 }
 
+                previewGlobalPlaneApplied = TrySetGlobalTransformationPlane(
+                    model,
+                    out previewWorkPlaneHandler,
+                    out previewPreviousTransformationPlane);
+                previewTransformationPlaneNote = previewGlobalPlaneApplied
+                    ? "global"
+                    : "mantido (nao foi possivel forcar global)";
+
+                List<ExplodedPartPlan> modelPlans = new List<ExplodedPartPlan>();
                 for (int i = 0; i < partPlans.Count; i++)
                 {
                     ExplodedPartPlan plan = partPlans[i];
-
                     double centerX;
                     double centerY;
                     double centerZ;
@@ -653,14 +1024,132 @@ namespace WindowsFormsApp1
                         continue;
                     }
 
-                    double previewMinX = minX;
-                    double previewMinY = minY;
-                    double previewMinZ = minZ;
-                    double previewMaxX = maxX;
-                    double previewMaxY = maxY;
-                    double previewMaxZ = maxZ;
+                    plan.HasModelCenter = true;
+                    plan.ModelCenterX = centerX;
+                    plan.ModelCenterY = centerY;
+                    plan.ModelCenterZ = centerZ;
+                    plan.ModelSizeScore = sizeScore;
+                    plan.HasModelBounds = hasBounds;
+                    plan.ModelMinX = minX;
+                    plan.ModelMinY = minY;
+                    plan.ModelMinZ = minZ;
+                    plan.ModelMaxX = maxX;
+                    plan.ModelMaxY = maxY;
+                    plan.ModelMaxZ = maxZ;
+                    plan.IsMainPart = false;
+                    modelPlans.Add(plan);
+                }
 
-                    if (useViewLocalCoordinates)
+                if (modelPlans.Count == 0)
+                {
+                    summaryText = "Nao foi possivel montar bounds 3D das pecas do conjunto.";
+                    return previewParts;
+                }
+
+                ExplodedPartPlan mainPlan = TryResolveMainPlanFromAssembly(model, modelPlans);
+                if (mainPlan == null)
+                {
+                    double bestMainScore = double.MinValue;
+                    for (int i = 0; i < modelPlans.Count; i++)
+                    {
+                        ExplodedPartPlan candidate = modelPlans[i];
+                        if (candidate.ModelSizeScore > bestMainScore)
+                        {
+                            bestMainScore = candidate.ModelSizeScore;
+                            mainPlan = candidate;
+                        }
+                    }
+                }
+
+                if (mainPlan != null)
+                {
+                    mainPlan.IsMainPart = true;
+                }
+
+                double originX = 0.0;
+                double originY = 0.0;
+                double originZ = 0.0;
+                double axisXx = 1.0;
+                double axisXy = 0.0;
+                double axisXz = 0.0;
+                double axisYx = 0.0;
+                double axisYy = 1.0;
+                double axisYz = 0.0;
+                double axisZx = 0.0;
+                double axisZy = 0.0;
+                double axisZz = 1.0;
+                bool useMainPartLocalCoordinates = false;
+                string previewAxisNormalizationNote = "nao aplicada";
+
+                if (mainPlan != null && mainPlan.Identifier != null)
+                {
+                    originX = mainPlan.ModelCenterX;
+                    originY = mainPlan.ModelCenterY;
+                    originZ = mainPlan.ModelCenterZ;
+                    useMainPartLocalCoordinates = TryGetMainLocalAxes(
+                        model,
+                        mainPlan.Identifier,
+                        out axisXx,
+                        out axisXy,
+                        out axisXz,
+                        out axisYx,
+                        out axisYy,
+                        out axisYz,
+                        out axisZx,
+                        out axisZy,
+                        out axisZz);
+
+                    if (useMainPartLocalCoordinates)
+                    {
+                        NormalizePreviewBasisToWorldOrientation(
+                            ref axisXx,
+                            ref axisXy,
+                            ref axisXz,
+                            ref axisYx,
+                            ref axisYy,
+                            ref axisYz,
+                            ref axisZx,
+                            ref axisZy,
+                            ref axisZz,
+                            out previewAxisNormalizationNote);
+
+                        ApplyPreviewAxisConvention(
+                            ref axisXx,
+                            ref axisXy,
+                            ref axisXz,
+                            ref axisYx,
+                            ref axisYy,
+                            ref axisYz,
+                            ref axisZx,
+                            ref axisZy,
+                            ref axisZz,
+                            ref previewAxisNormalizationNote);
+                    }
+                }
+
+                object previewCoordinateSystem = useMainPartLocalCoordinates
+                    ? CreateCoordinateSystem(0.0, 0.0, 0.0, axisXx, axisXy, axisXz, axisYx, axisYy, axisYz)
+                    : CreateGlobalCoordinateSystem();
+                previewCachedSourceScale = 1.0;
+                previewCachedViewCoordinateSystem = previewCoordinateSystem;
+                previewCachedDisplayCoordinateSystem = previewCoordinateSystem;
+                previewCachedPartPlans = new List<ExplodedPartPlan>(modelPlans);
+                previewCacheReady = previewCachedViewCoordinateSystem != null
+                    && previewCachedDisplayCoordinateSystem != null
+                    && modelPlans.Count > 0;
+                int meshPartsLoaded = 0;
+
+                for (int i = 0; i < modelPlans.Count; i++)
+                {
+                    ExplodedPartPlan plan = modelPlans[i];
+                    double previewMinX = plan.ModelMinX;
+                    double previewMinY = plan.ModelMinY;
+                    double previewMinZ = plan.ModelMinZ;
+                    double previewMaxX = plan.ModelMaxX;
+                    double previewMaxY = plan.ModelMaxY;
+                    double previewMaxZ = plan.ModelMaxZ;
+
+                    if (useMainPartLocalCoordinates)
                     {
                         double localMinX;
                         double localMinY;
@@ -669,15 +1158,15 @@ namespace WindowsFormsApp1
                         double localMaxY;
                         double localMaxZ;
                         if (TryTransformModelBoundsToViewLocal(
-                                minX,
-                                minY,
-                                minZ,
-                                maxX,
-                                maxY,
-                                maxZ,
-                                viewOriginX,
-                                viewOriginY,
-                                viewOriginZ,
+                                plan.ModelMinX,
+                                plan.ModelMinY,
+                                plan.ModelMinZ,
+                                plan.ModelMaxX,
+                                plan.ModelMaxY,
+                                plan.ModelMaxZ,
+                                originX,
+                                originY,
+                                originZ,
                                 axisXx,
                                 axisXy,
                                 axisXz,
@@ -704,8 +1193,30 @@ namespace WindowsFormsApp1
                     }
 
                     string label = string.IsNullOrWhiteSpace(plan.IdentifierKey)
-                        ? "Parte " + (insertedCount + 1).ToString()
+                        ? "Parte " + (i + 1).ToString()
                         : plan.IdentifierKey;
+
+                    List<OrbitToolForm.PreviewTriangle> previewTriangles =
+                        TryBuildPreviewTrianglesFromModel(
+                            model,
+                            plan.Identifier,
+                            useMainPartLocalCoordinates,
+                            originX,
+                            originY,
+                            originZ,
+                            axisXx,
+                            axisXy,
+                            axisXz,
+                            axisYx,
+                            axisYy,
+                            axisYz,
+                            axisZx,
+                            axisZy,
+                            axisZz);
+                    if (previewTriangles.Count > 0)
+                    {
+                        meshPartsLoaded++;
+                    }
 
                     previewParts.Add(
                         new OrbitToolForm.PreviewPart(
@@ -716,20 +1227,8 @@ namespace WindowsFormsApp1
                             previewMaxX,
                             previewMaxY,
                             previewMaxZ,
-                            false));
-
-                    if (sizeScore > bestMainScore)
-                    {
-                        bestMainScore = sizeScore;
-                        mainPartIndex = insertedCount;
-                    }
-
-                    insertedCount++;
-                }
-
-                if (mainPartIndex >= 0 && mainPartIndex < previewParts.Count)
-                {
-                    previewParts[mainPartIndex].IsMainPart = true;
+                            plan.IsMainPart,
+                            previewTriangles));
                 }
 
                 summaryText = previewParts.Count > 0
@@ -742,9 +1241,17 @@ namespace WindowsFormsApp1
                         + ". Pecas carregadas: "
                         + previewParts.Count
                         + "/"
-                        + selectedCount
+                        + modelPlans.Count
                         + ". Coordenadas usadas: "
-                        + (useViewLocalCoordinates ? "sistema da vista fonte" : "modelo global")
+                        + (useMainPartLocalCoordinates ? "eixo local da peca principal" : "modelo global")
+                        + ". Geometria real: "
+                        + meshPartsLoaded
+                        + "/"
+                        + modelPlans.Count
+                        + " pecas. Plano de trabalho: "
+                        + previewTransformationPlaneNote
+                        + ". Normalizacao de eixo: "
+                        + previewAxisNormalizationNote
                         + "."
                     : "Nao foi possivel montar bounds 3D das pecas encontradas no desenho ativo.";
             }
@@ -752,8 +1259,257 @@ namespace WindowsFormsApp1
             {
                 summaryText = "Erro ao montar preview 3D: " + GetInnermostExceptionMessage(ex);
             }
+            finally
+            {
+                if (previewGlobalPlaneApplied)
+                {
+                    TryRestoreTransformationPlane(previewWorkPlaneHandler, previewPreviousTransformationPlane);
+                }
+            }
 
             return previewParts;
+        }
+
+        private static void NormalizePreviewBasisToWorldOrientation(
+            ref double axisXx,
+            ref double axisXy,
+            ref double axisXz,
+            ref double axisYx,
+            ref double axisYy,
+            ref double axisYz,
+            ref double axisZx,
+            ref double axisZy,
+            ref double axisZz,
+            out string normalizationNote)
+        {
+            normalizationNote = "preservada";
+            if (!NormalizeVector3D(ref axisXx, ref axisXy, ref axisXz)
+                || !NormalizeVector3D(ref axisYx, ref axisYy, ref axisYz))
+            {
+                normalizationNote = "falha normalizar XY";
+                return;
+            }
+
+            // Mantem o eixo X da peca principal e ortonormaliza Y sem trocar sinais para "alinhar"
+            // com o global; isso evita espelhamento visual do conjunto no preview.
+            double dotXY = Dot3D(axisYx, axisYy, axisYz, axisXx, axisXy, axisXz);
+            axisYx -= dotXY * axisXx;
+            axisYy -= dotXY * axisXy;
+            axisYz -= dotXY * axisXz;
+            if (!NormalizeVector3D(ref axisYx, ref axisYy, ref axisYz))
+            {
+                normalizationNote = "falha ortonormalizar Y";
+                return;
+            }
+
+            double targetZx = axisZx;
+            double targetZy = axisZy;
+            double targetZz = axisZz;
+            bool hasTargetZ = NormalizeVector3D(ref targetZx, ref targetZy, ref targetZz);
+
+            axisZx = (axisXy * axisYz) - (axisXz * axisYy);
+            axisZy = (axisXz * axisYx) - (axisXx * axisYz);
+            axisZz = (axisXx * axisYy) - (axisXy * axisYx);
+            if (!NormalizeVector3D(ref axisZx, ref axisZy, ref axisZz))
+            {
+                normalizationNote = "falha calcular Z";
+                return;
+            }
+
+            if (hasTargetZ && Dot3D(axisZx, axisZy, axisZz, targetZx, targetZy, targetZz) < 0.0)
+            {
+                axisYx = -axisYx;
+                axisYy = -axisYy;
+                axisYz = -axisYz;
+                axisZx = -axisZx;
+                axisZy = -axisZy;
+                axisZz = -axisZz;
+                normalizationNote = "ajuste sinal YZ";
+            }
+        }
+
+        private static bool TrySetGlobalTransformationPlane(
+            object model,
+            out object workPlaneHandler,
+            out object previousTransformationPlane)
+        {
+            workPlaneHandler = null;
+            previousTransformationPlane = null;
+            if (model == null)
+            {
+                return false;
+            }
+
+            workPlaneHandler = InvokeParameterlessMethod(model, "GetWorkPlaneHandler");
+            if (workPlaneHandler == null)
+            {
+                return false;
+            }
+
+            previousTransformationPlane = InvokeParameterlessMethod(workPlaneHandler, "GetCurrentTransformationPlane");
+
+            Type transformationPlaneType = ResolveTeklaType(
+                "Tekla.Structures.Model.TransformationPlane",
+                "Tekla.Structures.Model",
+                TeklaModelDllCandidates);
+            if (transformationPlaneType == null)
+            {
+                return false;
+            }
+
+            object globalTransformationPlane;
+            try
+            {
+                globalTransformationPlane = Activator.CreateInstance(transformationPlaneType);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (globalTransformationPlane == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                object setResult = InvokeMethod(workPlaneHandler, "SetCurrentTransformationPlane", globalTransformationPlane);
+                if (setResult is bool && !((bool)setResult))
+                {
+                    return false;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static void ApplyPreviewAxisConvention(
+            ref double axisXx,
+            ref double axisXy,
+            ref double axisXz,
+            ref double axisYx,
+            ref double axisYy,
+            ref double axisYz,
+            ref double axisZx,
+            ref double axisZy,
+            ref double axisZz,
+            ref string note)
+        {
+            if (!NormalizeVector3D(ref axisXx, ref axisXy, ref axisXz)
+                || !NormalizeVector3D(ref axisYx, ref axisYy, ref axisYz)
+                || !NormalizeVector3D(ref axisZx, ref axisZy, ref axisZz))
+            {
+                note = string.IsNullOrWhiteSpace(note)
+                    ? "falha convencao preview"
+                    : (note + "; falha convencao preview");
+                return;
+            }
+
+            // Convencao visual do preview (Tekla drawing): espelha apenas X.
+            // Y e Z permanecem como vieram do eixo local da peca principal.
+            axisXx = -axisXx;
+            axisXy = -axisXy;
+            axisXz = -axisXz;
+
+            note = string.IsNullOrWhiteSpace(note)
+                ? "convencao preview: flip X"
+                : (note + "; convencao preview: flip X");
+        }
+
+        private static void TryRestoreTransformationPlane(
+            object workPlaneHandler,
+            object previousTransformationPlane)
+        {
+            if (workPlaneHandler == null || previousTransformationPlane == null)
+            {
+                return;
+            }
+
+            try
+            {
+                InvokeMethod(workPlaneHandler, "SetCurrentTransformationPlane", previousTransformationPlane);
+            }
+            catch
+            {
+                // Restauracao best effort.
+            }
+        }
+
+        private static ExplodedPartPlan TryResolveMainPlanFromAssembly(
+            object model,
+            List<ExplodedPartPlan> modelPlans)
+        {
+            if (model == null || modelPlans == null || modelPlans.Count == 0)
+            {
+                return null;
+            }
+
+            Dictionary<string, ExplodedPartPlan> byId = new Dictionary<string, ExplodedPartPlan>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < modelPlans.Count; i++)
+            {
+                ExplodedPartPlan plan = modelPlans[i];
+                if (plan == null || plan.Identifier == null)
+                {
+                    continue;
+                }
+
+                string id = !string.IsNullOrWhiteSpace(plan.IdentifierKey)
+                    ? plan.IdentifierKey
+                    : GetIdentifierKey(plan.Identifier);
+                if (string.IsNullOrWhiteSpace(id) || byId.ContainsKey(id))
+                {
+                    continue;
+                }
+
+                byId.Add(id, plan);
+            }
+
+            for (int i = 0; i < modelPlans.Count; i++)
+            {
+                ExplodedPartPlan plan = modelPlans[i];
+                if (plan == null || plan.Identifier == null)
+                {
+                    continue;
+                }
+
+                object modelObject = InvokeMethod(model, "SelectModelObject", plan.Identifier);
+                if (modelObject == null)
+                {
+                    continue;
+                }
+
+                object assemblyObject = InvokeParameterlessMethod(modelObject, "GetAssembly");
+                if (assemblyObject == null)
+                {
+                    continue;
+                }
+
+                object mainPartObject = InvokeParameterlessMethod(assemblyObject, "GetMainPart");
+                if (mainPartObject == null)
+                {
+                    continue;
+                }
+
+                object mainIdentifier = GetPropertyValue(mainPartObject, "Identifier");
+                string mainId = GetIdentifierKey(mainIdentifier);
+                if (string.IsNullOrWhiteSpace(mainId))
+                {
+                    continue;
+                }
+
+                ExplodedPartPlan resolved;
+                if (byId.TryGetValue(mainId, out resolved))
+                {
+                    return resolved;
+                }
+            }
+
+            return null;
         }
 
         private static bool TryTransformModelBoundsToViewLocal(
@@ -834,6 +1590,322 @@ namespace WindowsFormsApp1
             return initialized;
         }
 
+        private static List<OrbitToolForm.PreviewTriangle> TryBuildPreviewTrianglesFromModel(
+            object model,
+            object identifier,
+            bool useLocalCoordinates,
+            double originX,
+            double originY,
+            double originZ,
+            double axisXx,
+            double axisXy,
+            double axisXz,
+            double axisYx,
+            double axisYy,
+            double axisYz,
+            double axisZx,
+            double axisZy,
+            double axisZz)
+        {
+            List<OrbitToolForm.PreviewTriangle> triangles = new List<OrbitToolForm.PreviewTriangle>();
+            if (model == null || identifier == null)
+            {
+                return triangles;
+            }
+
+            object modelObject = InvokeMethod(model, "SelectModelObject", identifier);
+            if (modelObject == null)
+            {
+                return triangles;
+            }
+
+            object solid = InvokeMethod(modelObject, "GetSolid");
+            if (solid == null)
+            {
+                return triangles;
+            }
+
+            List<PreviewVertex> rawTriangles;
+            if (!TryExtractSolidTrianglesFromSolid(solid, out rawTriangles) || rawTriangles.Count == 0)
+            {
+                return triangles;
+            }
+
+            for (int i = 0; i + 2 < rawTriangles.Count; i += 3)
+            {
+                PreviewVertex v1 = rawTriangles[i];
+                PreviewVertex v2 = rawTriangles[i + 1];
+                PreviewVertex v3 = rawTriangles[i + 2];
+
+                if (useLocalCoordinates)
+                {
+                    v1 = TransformToLocalPreview(v1, originX, originY, originZ, axisXx, axisXy, axisXz, axisYx, axisYy, axisYz, axisZx, axisZy, axisZz);
+                    v2 = TransformToLocalPreview(v2, originX, originY, originZ, axisXx, axisXy, axisXz, axisYx, axisYy, axisYz, axisZx, axisZy, axisZz);
+                    v3 = TransformToLocalPreview(v3, originX, originY, originZ, axisXx, axisXy, axisXz, axisYx, axisYy, axisYz, axisZx, axisZy, axisZz);
+                }
+
+                if (ComputeTriangleAreaSquared(v1, v2, v3) < 1e-10)
+                {
+                    continue;
+                }
+
+                triangles.Add(
+                    new OrbitToolForm.PreviewTriangle(
+                        v1.X, v1.Y, v1.Z,
+                        v2.X, v2.Y, v2.Z,
+                        v3.X, v3.Y, v3.Z));
+            }
+
+            return triangles;
+        }
+
+        private static bool TryExtractSolidTrianglesFromSolid(
+            object solid,
+            out List<PreviewVertex> triangleVertices)
+        {
+            triangleVertices = new List<PreviewVertex>();
+            if (solid == null)
+            {
+                return false;
+            }
+
+            object faceEnumerator = InvokeParameterlessMethod(solid, "GetFaceEnumerator")
+                ?? InvokeParameterlessMethod(solid, "GetFaces");
+            if (faceEnumerator == null)
+            {
+                return false;
+            }
+
+            List<object> faces = EnumerateEnumeratorItems(faceEnumerator);
+            if (faces.Count == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < faces.Count; i++)
+            {
+                object face = faces[i];
+                if (face == null)
+                {
+                    continue;
+                }
+
+                List<PreviewVertex> vertices = new List<PreviewVertex>();
+                object loopEnumerator = InvokeParameterlessMethod(face, "GetLoopEnumerator")
+                    ?? InvokeParameterlessMethod(face, "GetLoops");
+
+                if (loopEnumerator != null)
+                {
+                    List<object> loops = EnumerateEnumeratorItems(loopEnumerator);
+                    for (int loopIndex = 0; loopIndex < loops.Count; loopIndex++)
+                    {
+                        object loop = loops[loopIndex];
+                        if (TryExtractLoopVertices(loop, out vertices) && vertices.Count >= 3)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (vertices.Count < 3)
+                {
+                    object vertexEnumerator = InvokeParameterlessMethod(face, "GetVertexEnumerator")
+                        ?? InvokeParameterlessMethod(face, "GetVertexes")
+                        ?? InvokeParameterlessMethod(face, "GetVertices");
+                    if (vertexEnumerator != null)
+                    {
+                        List<PreviewVertex> faceVertices;
+                        if (TryExtractVertexEnumeratorVertices(vertexEnumerator, out faceVertices))
+                        {
+                            vertices = faceVertices;
+                        }
+                    }
+                }
+
+                if (vertices.Count < 3)
+                {
+                    continue;
+                }
+
+                PreviewVertex first = vertices[0];
+                for (int v = 1; v < vertices.Count - 1; v++)
+                {
+                    triangleVertices.Add(first);
+                    triangleVertices.Add(vertices[v]);
+                    triangleVertices.Add(vertices[v + 1]);
+                }
+            }
+
+            return triangleVertices.Count >= 3;
+        }
+
+        private static bool TryExtractLoopVertices(object loop, out List<PreviewVertex> vertices)
+        {
+            vertices = new List<PreviewVertex>();
+            if (loop == null)
+            {
+                return false;
+            }
+
+            object vertexEnumerator = InvokeParameterlessMethod(loop, "GetVertexEnumerator")
+                ?? InvokeParameterlessMethod(loop, "GetVertexes")
+                ?? InvokeParameterlessMethod(loop, "GetVertices");
+            if (vertexEnumerator == null)
+            {
+                return false;
+            }
+
+            return TryExtractVertexEnumeratorVertices(vertexEnumerator, out vertices);
+        }
+
+        private static bool TryExtractVertexEnumeratorVertices(
+            object vertexEnumerator,
+            out List<PreviewVertex> vertices)
+        {
+            vertices = new List<PreviewVertex>();
+            if (vertexEnumerator == null)
+            {
+                return false;
+            }
+
+            List<object> points = EnumerateEnumeratorItems(vertexEnumerator);
+            for (int i = 0; i < points.Count; i++)
+            {
+                double x;
+                double y;
+                double z;
+                if (!TryGetXYZ(points[i], out x, out y, out z))
+                {
+                    continue;
+                }
+
+                vertices.Add(new PreviewVertex(x, y, z));
+            }
+
+            RemoveConsecutiveDuplicateVertices(vertices);
+            if (vertices.Count >= 2)
+            {
+                PreviewVertex first = vertices[0];
+                PreviewVertex last = vertices[vertices.Count - 1];
+                if (AreVerticesNear(first, last))
+                {
+                    vertices.RemoveAt(vertices.Count - 1);
+                }
+            }
+
+            return vertices.Count >= 3;
+        }
+
+        private static List<object> EnumerateEnumeratorItems(object enumerator)
+        {
+            List<object> items = new List<object>();
+            if (enumerator == null)
+            {
+                return items;
+            }
+
+            MethodInfo moveNext = enumerator.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo current = enumerator.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
+            if (moveNext == null || current == null)
+            {
+                return items;
+            }
+
+            while (true)
+            {
+                object moved = moveNext.Invoke(enumerator, null);
+                if (!(moved is bool) || !(bool)moved)
+                {
+                    break;
+                }
+
+                object item = current.GetValue(enumerator, null);
+                if (item != null)
+                {
+                    items.Add(item);
+                }
+            }
+
+            return items;
+        }
+
+        private static void RemoveConsecutiveDuplicateVertices(List<PreviewVertex> vertices)
+        {
+            if (vertices == null || vertices.Count < 2)
+            {
+                return;
+            }
+
+            for (int i = vertices.Count - 1; i > 0; i--)
+            {
+                if (AreVerticesNear(vertices[i], vertices[i - 1]))
+                {
+                    vertices.RemoveAt(i);
+                }
+            }
+        }
+
+        private static bool AreVerticesNear(PreviewVertex a, PreviewVertex b)
+        {
+            const double tolerance = 1e-7;
+            return Math.Abs(a.X - b.X) <= tolerance
+                && Math.Abs(a.Y - b.Y) <= tolerance
+                && Math.Abs(a.Z - b.Z) <= tolerance;
+        }
+
+        private static PreviewVertex TransformToLocalPreview(
+            PreviewVertex world,
+            double originX,
+            double originY,
+            double originZ,
+            double axisXx,
+            double axisXy,
+            double axisXz,
+            double axisYx,
+            double axisYy,
+            double axisYz,
+            double axisZx,
+            double axisZy,
+            double axisZz)
+        {
+            double dx = world.X - originX;
+            double dy = world.Y - originY;
+            double dz = world.Z - originZ;
+
+            return new PreviewVertex(
+                Dot3D(dx, dy, dz, axisXx, axisXy, axisXz),
+                Dot3D(dx, dy, dz, axisYx, axisYy, axisYz),
+                Dot3D(dx, dy, dz, axisZx, axisZy, axisZz));
+        }
+
+        private static double ComputeTriangleAreaSquared(PreviewVertex v1, PreviewVertex v2, PreviewVertex v3)
+        {
+            double ux = v2.X - v1.X;
+            double uy = v2.Y - v1.Y;
+            double uz = v2.Z - v1.Z;
+            double vx = v3.X - v1.X;
+            double vy = v3.Y - v1.Y;
+            double vz = v3.Z - v1.Z;
+            double cx = (uy * vz) - (uz * vy);
+            double cy = (uz * vx) - (ux * vz);
+            double cz = (ux * vy) - (uy * vx);
+            return (cx * cx) + (cy * cy) + (cz * cz);
+        }
+
+        private struct PreviewVertex
+        {
+            public PreviewVertex(double x, double y, double z)
+            {
+                X = x;
+                Y = y;
+                Z = z;
+            }
+
+            public double X;
+            public double Y;
+            public double Z;
+        }
+
         private static List<ExplodedPartPlan> CollectPartPlansFromDrawing(
             object activeDrawing,
             out int inspectedViews,
@@ -841,6 +1913,12 @@ namespace WindowsFormsApp1
         {
             inspectedViews = 0;
             candidateViews = 0;
+
+            List<ExplodedPartPlan> contextPlans = CollectPartPlansFromDrawingContext(activeDrawing);
+            if (contextPlans.Count > 0)
+            {
+                return contextPlans;
+            }
 
             List<ExplodedPartPlan> mergedPlans = new List<ExplodedPartPlan>();
             if (activeDrawing == null)
@@ -924,6 +2002,294 @@ namespace WindowsFormsApp1
             }
 
             return mergedPlans;
+        }
+
+        private static List<ExplodedPartPlan> CollectPartPlansFromDrawingContext(object activeDrawing)
+        {
+            List<ExplodedPartPlan> plans = new List<ExplodedPartPlan>();
+            if (activeDrawing == null)
+            {
+                return plans;
+            }
+
+            object model = CreateModelInstance();
+            if (model == null)
+            {
+                return plans;
+            }
+
+            bool? connected = InvokeBoolMethod(model, "GetConnectionStatus");
+            if (!connected.HasValue || !connected.Value)
+            {
+                return plans;
+            }
+
+            string[] contextMembers =
+            {
+                "GetAssembly",
+                "GetPart",
+                "GetCastUnit",
+                "GetModelObject",
+                "GetAssemblyIdentifier",
+                "GetPartIdentifier",
+                "GetCastUnitIdentifier",
+                "GetModelIdentifier",
+                "Assembly",
+                "Part",
+                "CastUnit",
+                "ModelObject",
+                "AssemblyIdentifier",
+                "PartIdentifier",
+                "CastUnitIdentifier",
+                "ModelIdentifier"
+            };
+
+            List<object> contextValues = new List<object>();
+            for (int i = 0; i < contextMembers.Length; i++)
+            {
+                string member = contextMembers[i];
+                AddContextCandidateValue(contextValues, InvokeParameterlessMethod(activeDrawing, member));
+                AddContextCandidateValue(contextValues, GetPropertyValue(activeDrawing, member));
+            }
+
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < contextValues.Count; i++)
+            {
+                AppendPartPlansFromDrawingContextValue(model, contextValues[i], seen, plans);
+            }
+
+            return plans;
+        }
+
+        private static void AppendPartPlansFromDrawingContextValue(
+            object model,
+            object contextValue,
+            HashSet<string> seen,
+            List<ExplodedPartPlan> plans)
+        {
+            if (model == null || contextValue == null || seen == null || plans == null)
+            {
+                return;
+            }
+
+            List<object> values = new List<object>();
+            CollectItemsFromUnknownCollection(contextValue, values);
+            if (values.Count == 0)
+            {
+                values.Add(contextValue);
+            }
+
+            for (int i = 0; i < values.Count; i++)
+            {
+                object modelObject = TryResolveModelObjectFromContextValue(model, values[i]);
+                if (modelObject == null)
+                {
+                    continue;
+                }
+
+                bool addedFromAssembly = false;
+                addedFromAssembly |= TryAddPartPlanFromModelObject(modelObject, seen, plans);
+                addedFromAssembly |= TryAddPartPlanFromModelObject(
+                    InvokeParameterlessMethod(modelObject, "GetMainPart"),
+                    seen,
+                    plans);
+                addedFromAssembly |= TryAddPartPlansFromModelCollection(
+                    InvokeParameterlessMethod(modelObject, "GetSecondaries"),
+                    seen,
+                    plans);
+                addedFromAssembly |= TryAddPartPlansFromModelCollection(
+                    InvokeParameterlessMethod(modelObject, "GetParts"),
+                    seen,
+                    plans);
+
+                object assemblyObject = InvokeParameterlessMethod(modelObject, "GetAssembly");
+                if (assemblyObject != null && !ReferenceEquals(assemblyObject, modelObject))
+                {
+                    addedFromAssembly |= TryAddPartPlanFromModelObject(
+                        InvokeParameterlessMethod(assemblyObject, "GetMainPart"),
+                        seen,
+                        plans);
+                    addedFromAssembly |= TryAddPartPlansFromModelCollection(
+                        InvokeParameterlessMethod(assemblyObject, "GetSecondaries"),
+                        seen,
+                        plans);
+                }
+            }
+        }
+
+        private static bool TryAddPartPlansFromModelCollection(
+            object collection,
+            HashSet<string> seen,
+            List<ExplodedPartPlan> plans)
+        {
+            bool added = false;
+            List<object> values = new List<object>();
+            CollectItemsFromUnknownCollection(collection, values);
+            for (int i = 0; i < values.Count; i++)
+            {
+                if (TryAddPartPlanFromModelObject(values[i], seen, plans))
+                {
+                    added = true;
+                }
+            }
+
+            return added;
+        }
+
+        private static bool TryAddPartPlanFromModelObject(
+            object modelObject,
+            HashSet<string> seen,
+            List<ExplodedPartPlan> plans)
+        {
+            if (modelObject == null || seen == null || plans == null)
+            {
+                return false;
+            }
+
+            Type type = modelObject.GetType();
+            string typeName = type != null ? type.Name : string.Empty;
+            if (!IsModelPartLikeTypeName(typeName))
+            {
+                return false;
+            }
+
+            object identifier = GetPropertyValue(modelObject, "Identifier");
+            return TryAddPartPlanFromIdentifier(identifier, seen, plans);
+        }
+
+        private static bool TryAddPartPlanFromIdentifier(
+            object identifier,
+            HashSet<string> seen,
+            List<ExplodedPartPlan> plans)
+        {
+            if (identifier == null || seen == null || plans == null)
+            {
+                return false;
+            }
+
+            string key = GetIdentifierKey(identifier);
+            if (string.IsNullOrWhiteSpace(key) || !seen.Add(key))
+            {
+                return false;
+            }
+
+            ExplodedPartPlan plan = new ExplodedPartPlan();
+            plan.Identifier = identifier;
+            plan.IdentifierKey = key;
+            plans.Add(plan);
+            return true;
+        }
+
+        private static object TryResolveModelObjectFromContextValue(object model, object contextValue)
+        {
+            if (model == null || contextValue == null)
+            {
+                return null;
+            }
+
+            Type valueType = contextValue.GetType();
+            string fullName = valueType != null ? valueType.FullName : string.Empty;
+            if (!string.IsNullOrWhiteSpace(fullName)
+                && fullName.StartsWith("Tekla.Structures.Model.", StringComparison.OrdinalIgnoreCase))
+            {
+                return contextValue;
+            }
+
+            object idValue = GetPropertyValue(contextValue, "ID") ?? GetPropertyValue(contextValue, "Id");
+            if (idValue == null)
+            {
+                return null;
+            }
+
+            return InvokeMethod(model, "SelectModelObject", contextValue);
+        }
+
+        private static void CollectItemsFromUnknownCollection(object collection, List<object> values)
+        {
+            if (collection == null || values == null || collection is string)
+            {
+                return;
+            }
+
+            IEnumerable enumerable = collection as IEnumerable;
+            if (enumerable != null)
+            {
+                foreach (object item in enumerable)
+                {
+                    if (item != null)
+                    {
+                        values.Add(item);
+                    }
+                }
+
+                return;
+            }
+
+            MethodInfo moveNext = collection.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo current = collection.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
+            if (moveNext == null || current == null)
+            {
+                return;
+            }
+
+            while (true)
+            {
+                object moved = moveNext.Invoke(collection, null);
+                if (!(moved is bool) || !(bool)moved)
+                {
+                    break;
+                }
+
+                object item = current.GetValue(collection, null);
+                if (item != null)
+                {
+                    values.Add(item);
+                }
+            }
+        }
+
+        private static void AddContextCandidateValue(List<object> values, object candidate)
+        {
+            if (values == null || candidate == null)
+            {
+                return;
+            }
+
+            List<object> expanded = new List<object>();
+            CollectItemsFromUnknownCollection(candidate, expanded);
+            if (expanded.Count > 0)
+            {
+                for (int i = 0; i < expanded.Count; i++)
+                {
+                    if (expanded[i] != null && !values.Contains(expanded[i]))
+                    {
+                        values.Add(expanded[i]);
+                    }
+                }
+
+                return;
+            }
+
+            if (!values.Contains(candidate))
+            {
+                values.Add(candidate);
+            }
+        }
+
+        private static bool IsModelPartLikeTypeName(string typeName)
+        {
+            if (string.IsNullOrWhiteSpace(typeName))
+            {
+                return false;
+            }
+
+            string normalized = typeName.Trim().ToLowerInvariant();
+            return normalized.Contains("part")
+                || normalized.Contains("beam")
+                || normalized.Contains("plate")
+                || normalized.Contains("polybeam")
+                || normalized.Contains("bentplate")
+                || normalized.Contains("item");
         }
 
         private void RefreshTeklaStatus(bool updateOutput)
@@ -1635,6 +3001,13 @@ namespace WindowsFormsApp1
                     usePlaneXY,
                     usePlaneXZ,
                     usePlaneZY,
+                    false,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
                     out centersFromModel,
                     out movedByXY,
                     out movedByXZ,
@@ -2109,30 +3482,17 @@ namespace WindowsFormsApp1
                     return;
                 }
 
-                object sourceView;
+                object sourceView = null;
                 int inspectedViews;
                 int candidateViews;
-                string sourceViewName;
-                double sourceIsoScore;
-                if (!TryFindBestIsometricViewInSheet(
-                        sheet,
-                        out sourceView,
-                        out inspectedViews,
-                        out candidateViews,
-                        out sourceViewName,
-                        out sourceIsoScore)
-                    || sourceView == null)
-                {
-                    UpdateStatus("Falha: nenhuma vista isometrica encontrada.", Color.DarkOrange);
-                    SetOutput("Nao foi possivel localizar automaticamente uma vista isometrica no desenho ativo.");
-                    return;
-                }
+                string sourceViewName = "conjunto do desenho ativo";
+                double sourceIsoScore = 0.0;
 
-                List<ExplodedPartPlan> partPlans = CollectPartPlansFromView(sourceView);
+                List<ExplodedPartPlan> partPlans = CollectPartPlansFromDrawing(activeDrawing, out inspectedViews, out candidateViews);
                 if (partPlans.Count == 0)
                 {
-                    UpdateStatus("Falha: a vista isometrica nao possui partes legiveis.", Color.DarkOrange);
-                    SetOutput("Nenhum ModelIdentifier de parte foi encontrado na vista isometrica detectada.");
+                    UpdateStatus("Falha: nao foi possivel ler as pecas do conjunto no desenho ativo.", Color.DarkOrange);
+                    SetOutput("Nenhum ModelIdentifier de parte foi encontrado no contexto do desenho ativo.");
                     return;
                 }
 
@@ -2161,13 +3521,58 @@ namespace WindowsFormsApp1
                 int removedExisting = DeleteExistingExplodedViews(sheet, ExplodedViewPrefix);
                 int removedGuideLines = DeleteExistingGuideLines(sheet);
 
-                double sourceScale = GetSourceViewScale(sourceView);
+                double sourceScale = previewCachedSourceScale > 0.0 ? previewCachedSourceScale : 1.0;
                 object model = CreateModelInstance();
                 int centersFromModel;
                 int movedByXY;
                 int movedByXZ;
                 int movedByZY;
                 int blockedByDirection = 0;
+                bool usePreviewAxesForExplode = false;
+                double previewAxisXx = 0.0;
+                double previewAxisXy = 0.0;
+                double previewAxisXz = 0.0;
+                double previewAxisYx = 0.0;
+                double previewAxisYy = 0.0;
+                double previewAxisYz = 0.0;
+
+                if (chkRotacaoPreview != null && chkRotacaoPreview.Checked)
+                {
+                    if (TryGetPreviewDisplayAxesForView(
+                            sourceView,
+                            out previewAxisXx,
+                            out previewAxisXy,
+                            out previewAxisXz,
+                            out previewAxisYx,
+                            out previewAxisYy,
+                            out previewAxisYz))
+                    {
+                        usePreviewAxesForExplode = true;
+                    }
+                }
+
+                if (!usePreviewAxesForExplode && sourceView == null)
+                {
+                    if (!TryGetPreviewDisplayAxesForView(
+                            null,
+                            out previewAxisXx,
+                            out previewAxisXy,
+                            out previewAxisXz,
+                            out previewAxisYx,
+                            out previewAxisYy,
+                            out previewAxisYz))
+                    {
+                        previewAxisXx = 1.0;
+                        previewAxisXy = 0.0;
+                        previewAxisXz = 0.0;
+                        previewAxisYx = 0.0;
+                        previewAxisYy = 1.0;
+                        previewAxisYz = 0.0;
+                    }
+
+                    usePreviewAxesForExplode = true;
+                }
+
                 bool modelLayoutUsed = ComputeExplodedOffsetsByPlanes(
                     sourceView,
                     partPlans,
@@ -2176,6 +3581,13 @@ namespace WindowsFormsApp1
                     usePlaneXY,
                     usePlaneXZ,
                     usePlaneZY,
+                    usePreviewAxesForExplode,
+                    previewAxisXx,
+                    previewAxisXy,
+                    previewAxisXz,
+                    previewAxisYx,
+                    previewAxisYy,
+                    previewAxisYz,
                     out centersFromModel,
                     out movedByXY,
                     out movedByXZ,
@@ -2185,7 +3597,16 @@ namespace WindowsFormsApp1
                 if (!modelLayoutUsed)
                 {
                     int fallbackCenters;
-                    ComputeExplodedOffsets(sourceView, partPlans, sourceScale, model, out fallbackCenters);
+                    if (sourceView != null)
+                    {
+                        ComputeExplodedOffsets(sourceView, partPlans, sourceScale, model, out fallbackCenters);
+                    }
+                    else
+                    {
+                        ApplyRadialOffsets(null, partPlans, false);
+                        fallbackCenters = 0;
+                    }
+
                     centersFromModel = Math.Max(centersFromModel, fallbackCenters);
                     fallbackLayoutUsed = true;
                 }
@@ -2200,15 +3621,28 @@ namespace WindowsFormsApp1
                     allowZNegative,
                     out blockedByDirection);
 
-                object anchorOrigin = GetPropertyValue(sourceView, "Origin");
-                double sourceOriginX;
-                double sourceOriginY;
                 double anchorZ;
-                if (!TryGetXYZ(anchorOrigin, out sourceOriginX, out sourceOriginY, out anchorZ))
+                if (sourceView != null)
                 {
-                    UpdateStatus("Falha: nao foi possivel ler origem da vista isometrica.", Color.DarkRed);
-                    SetOutput("View.Origin da vista detectada nao esta disponivel.");
-                    return;
+                    double sourceOriginX;
+                    double sourceOriginY;
+                    object anchorOrigin = GetPropertyValue(sourceView, "Origin");
+                    if (!TryGetXYZ(anchorOrigin, out sourceOriginX, out sourceOriginY, out anchorZ))
+                    {
+                        UpdateStatus("Falha: nao foi possivel ler origem da vista isometrica.", Color.DarkRed);
+                        SetOutput("View.Origin da vista detectada nao esta disponivel.");
+                        return;
+                    }
+                }
+                else
+                {
+                    double sheetOriginX;
+                    double sheetOriginY;
+                    object sheetOrigin = GetPropertyValue(sheet, "Origin");
+                    if (!TryGetXYZ(sheetOrigin, out sheetOriginX, out sheetOriginY, out anchorZ))
+                    {
+                        anchorZ = 0.0;
+                    }
                 }
 
                 double layoutMinX;
@@ -2275,12 +3709,37 @@ namespace WindowsFormsApp1
 
                 List<object> fitViews = new List<object>();
 
-                object viewCoordinateSystem = GetPropertyValue(sourceView, "ViewCoordinateSystem");
-                object displayCoordinateSystem = GetPropertyValue(sourceView, "DisplayCoordinateSystem");
+                object viewCoordinateSystem = sourceView != null
+                    ? GetPropertyValue(sourceView, "ViewCoordinateSystem")
+                    : null;
+                object displayCoordinateSystem = sourceView != null
+                    ? GetPropertyValue(sourceView, "DisplayCoordinateSystem")
+                    : null;
+
+                if (viewCoordinateSystem == null && previewCachedViewCoordinateSystem != null)
+                {
+                    viewCoordinateSystem = previewCachedViewCoordinateSystem;
+                }
+
+                if (displayCoordinateSystem == null && previewCachedDisplayCoordinateSystem != null)
+                {
+                    displayCoordinateSystem = previewCachedDisplayCoordinateSystem;
+                }
+
+                if (viewCoordinateSystem == null)
+                {
+                    viewCoordinateSystem = CreateGlobalCoordinateSystem();
+                }
+
+                if (displayCoordinateSystem == null)
+                {
+                    displayCoordinateSystem = CreateGlobalCoordinateSystem();
+                }
+
                 if (viewCoordinateSystem == null || displayCoordinateSystem == null)
                 {
-                    UpdateStatus("Falha: coordenadas da vista isometrica indisponiveis.", Color.DarkRed);
-                    SetOutput("ViewCoordinateSystem/DisplayCoordinateSystem da vista detectada nao encontrados.");
+                    UpdateStatus("Falha: coordenadas base indisponiveis para criar as vistas.", Color.DarkRed);
+                    SetOutput("Nao foi possivel obter ou criar ViewCoordinateSystem/DisplayCoordinateSystem.");
                     return;
                 }
 
@@ -2543,19 +4002,53 @@ namespace WindowsFormsApp1
                 if (testEnabled)
                 {
                     testAxisRequested = 3;
+                    if (sourceView != null)
+                    {
+                        testAxisCreated = TryCreateMainPartTestAxesOverlay(
+                            sheet,
+                            sourceView,
+                            model,
+                            partPlans,
+                            sourceScaleForFit,
+                            anchorX,
+                            anchorY,
+                            anchorZ,
+                            true,
+                            true,
+                            true);
+                    }
+                    else
+                    {
+                        double yawRadians;
+                        double pitchRadians;
+                        if (!TryGetPreviewCameraAngles(out yawRadians, out pitchRadians))
+                        {
+                            yawRadians = 0.0;
+                            pitchRadians = 0.0;
+                        }
 
-                    testAxisCreated = TryCreateMainPartTestAxesOverlay(
-                        sheet,
-                        sourceView,
-                        model,
-                        partPlans,
-                        sourceScaleForFit,
-                        anchorX,
-                        anchorY,
-                        anchorZ,
-                        true,
-                        true,
-                        true);
+                        double cosYaw = Math.Cos(yawRadians);
+                        double sinYaw = Math.Sin(yawRadians);
+                        double cosPitch = Math.Cos(pitchRadians);
+                        double sinPitch = Math.Sin(pitchRadians);
+                        double axisLength = Math.Max(TestAxisMinimumLength, Math.Min(Math.Abs(rectMaxX - rectMinX), Math.Abs(rectMaxY - rectMinY)) * 0.32);
+
+                        testAxisCreated = TryCreatePreviewAlignedTestAxesOverlay(
+                            sheet,
+                            anchorX,
+                            anchorY,
+                            anchorZ,
+                            axisLength,
+                            cosYaw,
+                            sinPitch * sinYaw,
+                            0.0,
+                            cosPitch,
+                            sinYaw,
+                            -sinPitch * cosYaw,
+                            true,
+                            true,
+                            true);
+                    }
                 }
 
                 CommitActiveDrawingChanges(activeDrawing);
@@ -2601,6 +4094,7 @@ namespace WindowsFormsApp1
                 report.AppendLine("  xy: " + movedByXY);
                 report.AppendLine("  xz: " + movedByXZ);
                 report.AppendLine("  zy: " + movedByZY);
+                report.AppendLine("Eixos usados para explosao: " + (usePreviewAxesForExplode ? "camera do preview" : "vista do desenho"));
                 report.AppendLine("Ajuste de escala automatico: " + (fitComputed ? "ligado" : "fallback sem ajuste"));
                 report.AppendLine("Fator de fit aplicado: " + fitScaleFactor.ToString("0.###"));
                 report.AppendLine("Layout base calculado: W=" + layoutWidth.ToString("0.###") + " H=" + layoutHeight.ToString("0.###"));
@@ -3085,6 +4579,47 @@ namespace WindowsFormsApp1
             bool drawAxisY,
             bool drawAxisZ)
         {
+            return TryCreateMainPartTestAxesOverlay(
+                viewBase,
+                sourceView,
+                model,
+                plans,
+                viewScale,
+                anchorX,
+                anchorY,
+                anchorZ,
+                drawAxisX,
+                drawAxisY,
+                drawAxisZ,
+                false,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0);
+        }
+
+        private static int TryCreateMainPartTestAxesOverlay(
+            object viewBase,
+            object sourceView,
+            object model,
+            List<ExplodedPartPlan> plans,
+            double viewScale,
+            double anchorX,
+            double anchorY,
+            double anchorZ,
+            bool drawAxisX,
+            bool drawAxisY,
+            bool drawAxisZ,
+            bool alignSignsToReference,
+            double referenceAxisXDirX,
+            double referenceAxisXDirY,
+            double referenceAxisYDirX,
+            double referenceAxisYDirY,
+            double referenceAxisZDirX,
+            double referenceAxisZDirY)
+        {
             if (viewBase == null || sourceView == null || model == null || plans == null || plans.Count == 0)
             {
                 return 0;
@@ -3186,6 +4721,13 @@ namespace WindowsFormsApp1
                 || !NormalizeVector2D(ref axisZSheetX, ref axisZSheetY))
             {
                 return 0;
+            }
+
+            if (alignSignsToReference)
+            {
+                AlignAxisDirectionByReference(ref axisXSheetX, ref axisXSheetY, referenceAxisXDirX, referenceAxisXDirY);
+                AlignAxisDirectionByReference(ref axisYSheetX, ref axisYSheetY, referenceAxisYDirX, referenceAxisYDirY);
+                AlignAxisDirectionByReference(ref axisZSheetX, ref axisZSheetY, referenceAxisZDirX, referenceAxisZDirY);
             }
 
             double scaleDivisor = viewScale > 0.0 ? viewScale : 1.0;
@@ -3290,6 +4832,35 @@ namespace WindowsFormsApp1
             }
 
             return created;
+        }
+
+        private static void AlignAxisDirectionByReference(
+            ref double axisDirX,
+            ref double axisDirY,
+            double referenceDirX,
+            double referenceDirY)
+        {
+            double normalizedAxisX = axisDirX;
+            double normalizedAxisY = axisDirY;
+            if (!NormalizeVector2D(ref normalizedAxisX, ref normalizedAxisY))
+            {
+                return;
+            }
+
+            double normalizedReferenceX = referenceDirX;
+            double normalizedReferenceY = referenceDirY;
+            if (!NormalizeVector2D(ref normalizedReferenceX, ref normalizedReferenceY))
+            {
+                return;
+            }
+
+            double sameDirectionScore =
+                (normalizedAxisX * normalizedReferenceX) + (normalizedAxisY * normalizedReferenceY);
+            if (sameDirectionScore < 0.0)
+            {
+                axisDirX = -axisDirX;
+                axisDirY = -axisDirY;
+            }
         }
 
         private static int TryCreatePreviewAlignedTestAxesOverlay(
@@ -6966,6 +8537,13 @@ namespace WindowsFormsApp1
             bool usePlaneXY,
             bool usePlaneXZ,
             bool usePlaneZY,
+            bool useOverrideDisplayAxes,
+            double overrideAxisXx,
+            double overrideAxisXy,
+            double overrideAxisXz,
+            double overrideAxisYx,
+            double overrideAxisYy,
+            double overrideAxisYz,
             out int centersFromModel,
             out int movedByXY,
             out int movedByXZ,
@@ -7003,6 +8581,13 @@ namespace WindowsFormsApp1
                 usePlaneXY,
                 usePlaneXZ,
                 usePlaneZY,
+                useOverrideDisplayAxes,
+                overrideAxisXx,
+                overrideAxisXy,
+                overrideAxisXz,
+                overrideAxisYx,
+                overrideAxisYy,
+                overrideAxisYz,
                 out centersFromModel,
                 out movedByXY,
                 out movedByXZ,
@@ -7017,6 +8602,13 @@ namespace WindowsFormsApp1
             bool usePlaneXY,
             bool usePlaneXZ,
             bool usePlaneZY,
+            bool useOverrideDisplayAxes,
+            double overrideAxisXx,
+            double overrideAxisXy,
+            double overrideAxisXz,
+            double overrideAxisYx,
+            double overrideAxisYy,
+            double overrideAxisYz,
             out int centersFromModel,
             out int movedByXY,
             out int movedByXZ,
@@ -7044,7 +8636,16 @@ namespace WindowsFormsApp1
             double axisYx;
             double axisYy;
             double axisYz;
-            if (!TryGetViewDisplayAxes(sourceView, out axisXx, out axisXy, out axisXz, out axisYx, out axisYy, out axisYz))
+            if (useOverrideDisplayAxes)
+            {
+                axisXx = overrideAxisXx;
+                axisXy = overrideAxisXy;
+                axisXz = overrideAxisXz;
+                axisYx = overrideAxisYx;
+                axisYy = overrideAxisYy;
+                axisYz = overrideAxisYz;
+            }
+            else if (!TryGetViewDisplayAxes(sourceView, out axisXx, out axisXy, out axisXz, out axisYx, out axisYy, out axisYz))
             {
                 return false;
             }
@@ -7196,7 +8797,8 @@ namespace WindowsFormsApp1
                 ExplodedPartPlan plan = modelPlans[i];
                 double baseOffsetX;
                 double baseOffsetY;
-                if (plan.HasCenter2D && mainPlan.HasCenter2D)
+                bool canUseDrawing2DBase = !useOverrideDisplayAxes && plan.HasCenter2D && mainPlan.HasCenter2D;
+                if (canUseDrawing2DBase)
                 {
                     baseOffsetX = plan.Center2DX - mainPlan.Center2DX;
                     baseOffsetY = plan.Center2DY - mainPlan.Center2DY;
@@ -8239,7 +9841,34 @@ namespace WindowsFormsApp1
             string viewName,
             out bool autoIsoApplied)
         {
+            ArrayList partList = new ArrayList();
+            partList.Add(identifier);
+
+            return CreatePartListViewForFit(
+                sheet,
+                viewCoordinateSystem,
+                displayCoordinateSystem,
+                partList,
+                sourceScale,
+                viewName,
+                out autoIsoApplied);
+        }
+
+        private object CreatePartListViewForFit(
+            object sheet,
+            object viewCoordinateSystem,
+            object displayCoordinateSystem,
+            ArrayList partList,
+            double sourceScale,
+            string viewName,
+            out bool autoIsoApplied)
+        {
             autoIsoApplied = false;
+
+            if (partList == null || partList.Count == 0)
+            {
+                return null;
+            }
 
             Type viewType = ResolveTeklaType(
                 "Tekla.Structures.Drawing.View",
@@ -8249,9 +9878,6 @@ namespace WindowsFormsApp1
             {
                 return null;
             }
-
-            ArrayList partList = new ArrayList();
-            partList.Add(identifier);
 
             object view;
             try
@@ -8274,7 +9900,7 @@ namespace WindowsFormsApp1
             if (viewAttributes != null)
             {
                 // Neste fluxo carregamos o perfil para manter a formatacao visual e,
-                // em seguida, forÃ§amos a escala de fit.
+                // em seguida, forcamos a escala de fit.
                 autoIsoApplied = TryLoadAttributesByName(viewAttributes, ExplodedViewAttributeFile);
                 if (!autoIsoApplied)
                 {
@@ -8389,6 +10015,96 @@ namespace WindowsFormsApp1
                 return null;
             }
         }
+
+        private static object CreateVector(double x, double y, double z)
+        {
+            Type vectorType = ResolveTeklaType(
+                "Tekla.Structures.Geometry3d.Vector",
+                "Tekla.Structures",
+                TeklaStructuresDllCandidates);
+            if (vectorType == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return Activator.CreateInstance(vectorType, new object[] { x, y, z });
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static object CreateGlobalCoordinateSystem()
+        {
+            return CreateCoordinateSystem(
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0);
+        }
+
+        private static object CreateCoordinateSystem(
+            double originX,
+            double originY,
+            double originZ,
+            double axisXx,
+            double axisXy,
+            double axisXz,
+            double axisYx,
+            double axisYy,
+            double axisYz)
+        {
+            Type coordinateSystemType = ResolveTeklaType(
+                "Tekla.Structures.Geometry3d.CoordinateSystem",
+                "Tekla.Structures",
+                TeklaStructuresDllCandidates);
+            if (coordinateSystemType == null)
+            {
+                return null;
+            }
+
+            object origin = CreatePoint(originX, originY, originZ);
+            object axisX = CreateVector(axisXx, axisXy, axisXz) ?? CreatePoint(axisXx, axisXy, axisXz);
+            object axisY = CreateVector(axisYx, axisYy, axisYz) ?? CreatePoint(axisYx, axisYy, axisYz);
+            if (origin == null || axisX == null || axisY == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return Activator.CreateInstance(coordinateSystemType, new object[] { origin, axisX, axisY });
+            }
+            catch
+            {
+                try
+                {
+                    object coordinateSystem = Activator.CreateInstance(coordinateSystemType);
+                    if (coordinateSystem == null)
+                    {
+                        return null;
+                    }
+
+                    SetPropertyValue(coordinateSystem, "Origin", origin);
+                    SetPropertyValue(coordinateSystem, "AxisX", axisX);
+                    SetPropertyValue(coordinateSystem, "AxisY", axisY);
+                    return coordinateSystem;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
         private static object GetPropertyValue(object target, string propertyName, string declaringTypeFullName = null)
         {
             if (target == null)
