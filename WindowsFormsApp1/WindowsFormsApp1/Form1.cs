@@ -1236,14 +1236,47 @@ namespace WindowsFormsApp1
 
                 double layoutWidth = Math.Max(0.0, layoutMaxX - layoutMinX);
                 double layoutHeight = Math.Max(0.0, layoutMaxY - layoutMinY);
-                double rectCenterX = (rectMinX + rectMaxX) * 0.5;
-                double rectCenterY = (rectMinY + rectMaxY) * 0.5;
-                double layoutCenterX = (layoutMinX + layoutMaxX) * 0.5;
-                double layoutCenterY = (layoutMinY + layoutMaxY) * 0.5;
-                double anchorX = rectCenterX - layoutCenterX;
-                double anchorY = rectCenterY - layoutCenterY;
+                double fitScaleFactor;
+                double anchorX;
+                double anchorY;
+                double fittedLayoutWidth;
+                double fittedLayoutHeight;
+                bool fitComputed = TryComputeFitIntoRectangle(
+                    partPlans,
+                    ghostLineEnabled,
+                    rectMinX,
+                    rectMinY,
+                    rectMaxX,
+                    rectMaxY,
+                    out fitScaleFactor,
+                    out anchorX,
+                    out anchorY,
+                    out fittedLayoutWidth,
+                    out fittedLayoutHeight);
+                if (!fitComputed)
+                {
+                    fitScaleFactor = 1.0;
+                    fittedLayoutWidth = layoutWidth;
+                    fittedLayoutHeight = layoutHeight;
+
+                    double rectCenterX = (rectMinX + rectMaxX) * 0.5;
+                    double rectCenterY = (rectMinY + rectMaxY) * 0.5;
+                    double layoutCenterX = (layoutMinX + layoutMaxX) * 0.5;
+                    double layoutCenterY = (layoutMinY + layoutMaxY) * 0.5;
+                    anchorX = rectCenterX - layoutCenterX;
+                    anchorY = rectCenterY - layoutCenterY;
+                }
+                else if (Math.Abs(fitScaleFactor - 1.0) > 1e-6)
+                {
+                    ScalePlannedOffsets(partPlans, fitScaleFactor);
+                }
 
                 double sourceScaleForFit = sourceScale > 0.0 ? sourceScale : 1.0;
+                if (fitScaleFactor > 1e-6)
+                {
+                    sourceScaleForFit /= fitScaleFactor;
+                }
+
                 List<object> fitViews = new List<object>();
 
                 object viewCoordinateSystem = GetPropertyValue(sourceView, "ViewCoordinateSystem");
@@ -1524,8 +1557,10 @@ namespace WindowsFormsApp1
                 report.AppendLine("  xy: " + movedByXY);
                 report.AppendLine("  xz: " + movedByXZ);
                 report.AppendLine("  zy: " + movedByZY);
-                report.AppendLine("Ajuste de escala automatico: desligado");
+                report.AppendLine("Ajuste de escala automatico: " + (fitComputed ? "ligado" : "fallback sem ajuste"));
+                report.AppendLine("Fator de fit aplicado: " + fitScaleFactor.ToString("0.###"));
                 report.AppendLine("Layout base calculado: W=" + layoutWidth.ToString("0.###") + " H=" + layoutHeight.ToString("0.###"));
+                report.AppendLine("Layout ajustado para fit: W=" + fittedLayoutWidth.ToString("0.###") + " H=" + fittedLayoutHeight.ToString("0.###"));
                 report.AppendLine("Retangulo verde informado: W=" + rectWidth.ToString("0.###") + " H=" + rectHeight.ToString("0.###"));
                 report.AppendLine("Retangulo amarelo criado: W=" + yellowRectWidth.ToString("0.###") + " H=" + yellowRectHeight.ToString("0.###"));
                 report.AppendLine("Retangulo amarelo criado: " + (fitRectangleCreated ? "sim" : "nao"));
@@ -2808,33 +2843,7 @@ namespace WindowsFormsApp1
                 double objMaxX;
                 double objMaxY;
 
-                bool gotBounds = TryGetDrawingObjectBounds2D(selectedObject, out objMinX, out objMinY, out objMaxX, out objMaxY)
-                    || TryGetObjectPointBounds2D(selectedObject, out objMinX, out objMinY, out objMaxX, out objMaxY);
-
-                if (!gotBounds)
-                {
-                    double centerX;
-                    double centerY;
-                    double sizeScore;
-                    if (TryGetDrawingObjectCenter2D(selectedObject, out centerX, out centerY, out sizeScore))
-                    {
-                        double half = Math.Max(1.0, Math.Min(12.0, sizeScore * 0.35));
-                        objMinX = centerX - half;
-                        objMinY = centerY - half;
-                        objMaxX = centerX + half;
-                        objMaxY = centerY + half;
-                        gotBounds = true;
-                    }
-                }
-
-                if (!gotBounds)
-                {
-                    object maybeParentView = ExtractViewFromSelectedObject(selectedObject, null);
-                    if (maybeParentView != null && !ReferenceEquals(maybeParentView, selectedObject))
-                    {
-                        gotBounds = TryGetDrawingObjectBounds2D(maybeParentView, out objMinX, out objMinY, out objMaxX, out objMaxY);
-                    }
-                }
+                bool gotBounds = TryGetExactSelectionBounds2D(selectedObject, out objMinX, out objMinY, out objMaxX, out objMaxY);
 
                 if (!gotBounds)
                 {
@@ -2870,6 +2879,41 @@ namespace WindowsFormsApp1
             return width > 1e-6 && height > 1e-6;
         }
 
+        private static bool TryGetExactSelectionBounds2D(
+            object drawingObject,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+
+            if (drawingObject == null)
+            {
+                return false;
+            }
+
+            if (TryGetObjectPointBounds2D(drawingObject, out minX, out minY, out maxX, out maxY))
+            {
+                return true;
+            }
+
+            if (TryGetKnownPointPairBounds2D(drawingObject, out minX, out minY, out maxX, out maxY))
+            {
+                return true;
+            }
+
+            if (TryGetStrictBoundingBoxBounds2D(drawingObject, out minX, out minY, out maxX, out maxY))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
         private static bool TryGetObjectPointBounds2D(
             object drawingObject,
             out double minX,
@@ -2887,25 +2931,200 @@ namespace WindowsFormsApp1
                 return false;
             }
 
-            foreach (string propertyName in new[] { "Points", "Vertices", "Polygon", "ContourPoints", "ControlPoints" })
+            foreach (string propertyName in new[] { "Points", "Vertices", "Polygon", "ContourPoints", "ControlPoints", "PolygonPoints", "Corners" })
             {
                 object value = GetPropertyValue(drawingObject, propertyName);
-                if (TryGetPointCollectionBounds2D(value, out minX, out minY, out maxX, out maxY))
+                if (TryGetNestedPointBounds2D(value, out minX, out minY, out maxX, out maxY))
                 {
                     return true;
                 }
             }
 
-            foreach (string methodName in new[] { "GetPoints", "GetVertices", "GetPolygon", "GetContourPoints" })
+            foreach (string methodName in new[] { "GetPoints", "GetVertices", "GetPolygon", "GetContourPoints", "GetCorners" })
             {
                 object value = InvokeParameterlessMethod(drawingObject, methodName);
-                if (TryGetPointCollectionBounds2D(value, out minX, out minY, out maxX, out maxY))
+                if (TryGetNestedPointBounds2D(value, out minX, out minY, out maxX, out maxY))
                 {
                     return true;
                 }
             }
 
             return false;
+        }
+
+        private static bool TryGetNestedPointBounds2D(
+            object value,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+
+            if (value == null)
+            {
+                return false;
+            }
+
+            if (TryGetPointCollectionBounds2D(value, out minX, out minY, out maxX, out maxY))
+            {
+                return true;
+            }
+
+            if (TryGetKnownPointPairBounds2D(value, out minX, out minY, out maxX, out maxY))
+            {
+                return true;
+            }
+
+            foreach (string nestedPropertyName in new[] { "Points", "Vertices", "PolygonPoints", "ContourPoints", "ControlPoints", "Corners" })
+            {
+                object nestedValue = GetPropertyValue(value, nestedPropertyName);
+                if (TryGetPointCollectionBounds2D(nestedValue, out minX, out minY, out maxX, out maxY))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetKnownPointPairBounds2D(
+            object source,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+
+            if (source == null)
+            {
+                return false;
+            }
+
+            foreach (string[] pair in new[]
+            {
+                new[] { "StartPoint", "EndPoint" },
+                new[] { "Point1", "Point2" },
+                new[] { "FirstPoint", "SecondPoint" },
+                new[] { "LowerLeft", "UpperRight" },
+                new[] { "BottomLeft", "TopRight" },
+                new[] { "LeftBottom", "RightTop" },
+                new[] { "MinimumPoint", "MaximumPoint" },
+                new[] { "MinPoint", "MaxPoint" },
+                new[] { "Minimum", "Maximum" }
+            })
+            {
+                object first = GetPropertyValue(source, pair[0]);
+                object second = GetPropertyValue(source, pair[1]);
+                if (TryGetTwoPointBounds2D(first, second, out minX, out minY, out maxX, out maxY))
+                {
+                    return true;
+                }
+            }
+
+            if (TryGetCornerSetBounds2D(source, out minX, out minY, out maxX, out maxY))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetCornerSetBounds2D(
+            object source,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+
+            if (source == null)
+            {
+                return false;
+            }
+
+            List<object> corners = new List<object>();
+            foreach (string propertyName in new[] { "LowerLeft", "LowerRight", "UpperLeft", "UpperRight", "TopLeft", "TopRight", "BottomLeft", "BottomRight" })
+            {
+                object point = GetPropertyValue(source, propertyName);
+                if (point != null)
+                {
+                    corners.Add(point);
+                }
+            }
+
+            return TryGetPointCollectionBounds2D(corners, out minX, out minY, out maxX, out maxY);
+        }
+
+        private static bool TryGetTwoPointBounds2D(
+            object firstPoint,
+            object secondPoint,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+
+            double firstX;
+            double firstY;
+            double firstZ;
+            double secondX;
+            double secondY;
+            double secondZ;
+            if (!TryGetXYZ(firstPoint, out firstX, out firstY, out firstZ)
+                || !TryGetXYZ(secondPoint, out secondX, out secondY, out secondZ))
+            {
+                return false;
+            }
+
+            minX = Math.Min(firstX, secondX);
+            minY = Math.Min(firstY, secondY);
+            maxX = Math.Max(firstX, secondX);
+            maxY = Math.Max(firstY, secondY);
+            return Math.Abs(maxX - minX) > 1e-6 && Math.Abs(maxY - minY) > 1e-6;
+        }
+
+        private static bool TryGetStrictBoundingBoxBounds2D(
+            object drawingObject,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+
+            if (drawingObject == null)
+            {
+                return false;
+            }
+
+            object bounding = InvokeParameterlessMethod(drawingObject, "GetAxisAlignedBoundingBox")
+                ?? GetPropertyValue(drawingObject, "BoundingBox")
+                ?? GetPropertyValue(drawingObject, "AxisAlignedBoundingBox");
+            if (bounding == null)
+            {
+                return false;
+            }
+
+            return TryGetKnownPointPairBounds2D(bounding, out minX, out minY, out maxX, out maxY);
         }
 
         private static bool TryGetPointCollectionBounds2D(
