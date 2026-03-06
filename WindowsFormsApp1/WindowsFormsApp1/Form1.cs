@@ -1940,82 +1940,55 @@ namespace WindowsFormsApp1
                     continue;
                 }
 
-                if (IsPlanMovementEnabledByDirection(
-                        plan,
-                        allowXPositive,
-                        allowXNegative,
-                        allowYPositive,
-                        allowYNegative,
-                        allowZPositive,
-                        allowZNegative))
+                double filteredOffsetX = plan.OriginalOffsetX;
+                double filteredOffsetY = plan.OriginalOffsetY;
+                int dominantAxisCode;
+                int dominantAxisSide;
+                if (TryGetPlanDominantDirection(plan, out dominantAxisCode, out dominantAxisSide))
                 {
-                    continue;
+                    if (dominantAxisCode == 1 && IsDirectionEnabled(dominantAxisSide, allowXPositive, allowXNegative))
+                    {
+                        filteredOffsetX += plan.OffsetFromXAxisX;
+                        filteredOffsetY += plan.OffsetFromXAxisY;
+                    }
+                    else if (dominantAxisCode == 2 && IsDirectionEnabled(dominantAxisSide, allowYPositive, allowYNegative))
+                    {
+                        filteredOffsetX += plan.OffsetFromYAxisX;
+                        filteredOffsetY += plan.OffsetFromYAxisY;
+                    }
+                    else if (dominantAxisCode == 3 && IsDirectionEnabled(dominantAxisSide, allowZPositive, allowZNegative))
+                    {
+                        filteredOffsetX += plan.OffsetFromZAxisX;
+                        filteredOffsetY += plan.OffsetFromZAxisY;
+                    }
                 }
 
-                plan.OffsetX = plan.OriginalOffsetX;
-                plan.OffsetY = plan.OriginalOffsetY;
-                blockedCount++;
+                bool movementBlocked = Math.Abs(filteredOffsetX - plan.OffsetX) > 1e-6
+                    || Math.Abs(filteredOffsetY - plan.OffsetY) > 1e-6;
+
+                plan.OffsetX = filteredOffsetX;
+                plan.OffsetY = filteredOffsetY;
+
+                if (movementBlocked)
+                {
+                    blockedCount++;
+                }
             }
         }
 
-        private static bool IsPlanMovementEnabledByDirection(
-            ExplodedPartPlan plan,
-            bool allowXPositive,
-            bool allowXNegative,
-            bool allowYPositive,
-            bool allowYNegative,
-            bool allowZPositive,
-            bool allowZNegative)
+        private static bool IsDirectionEnabled(int axisSide, bool allowPositive, bool allowNegative)
         {
-            if (plan == null || plan.IsMainPart)
-            {
-                return true;
-            }
-
-            int axisCode;
-            int axisSide;
-            if (!TryGetPlanDominantDirection(plan, out axisCode, out axisSide))
-            {
-                return true;
-            }
-
             if (axisSide > 0)
             {
-                if (axisCode == 1)
-                {
-                    return allowXPositive;
-                }
-
-                if (axisCode == 2)
-                {
-                    return allowYPositive;
-                }
-
-                if (axisCode == 3)
-                {
-                    return allowZPositive;
-                }
+                return allowPositive;
             }
 
             if (axisSide < 0)
             {
-                if (axisCode == 1)
-                {
-                    return allowXNegative;
-                }
-
-                if (axisCode == 2)
-                {
-                    return allowYNegative;
-                }
-
-                if (axisCode == 3)
-                {
-                    return allowZNegative;
-                }
+                return allowNegative;
             }
 
-            return true;
+            return false;
         }
 
         private static bool TryGetPlanDominantDirection(ExplodedPartPlan plan, out int axisCode, out int axisSide)
@@ -3084,14 +3057,7 @@ namespace WindowsFormsApp1
                 SetPropertyValue(partAttributes, "ReferenceLine", referenceLine);
             }
 
-            object hatch = GetPropertyValue(partAttributes, "Hatch");
-            if (hatch != null)
-            {
-                changed |= TrySetColorProperty(hatch, "Color", 152);
-                changed |= TrySetColorProperty(hatch, "BackgroundColor", 152);
-                changed |= SetPropertyValue(hatch, "DrawBackgroundColor", false);
-                SetPropertyValue(partAttributes, "Hatch", hatch);
-            }
+            changed |= TryClearGhostFill(partAttributes);
 
             if (!changed)
             {
@@ -3101,6 +3067,44 @@ namespace WindowsFormsApp1
             bool attributesSet = SetPropertyValue(drawingObject, "Attributes", partAttributes, "Tekla.Structures.Drawing.Part")
                 || SetPropertyValue(drawingObject, "Attributes", partAttributes);
             return attributesSet;
+        }
+
+        private static bool TryClearGhostFill(object partAttributes)
+        {
+            if (partAttributes == null)
+            {
+                return false;
+            }
+
+            bool changed = false;
+            changed |= TryClearGhostHatchProperty(partAttributes, "FaceHatch");
+            changed |= TryClearGhostHatchProperty(partAttributes, "SectionFaceHatch");
+            changed |= TryClearGhostHatchProperty(partAttributes, "Hatch");
+            return changed;
+        }
+
+        private static bool TryClearGhostHatchProperty(object owner, string propertyName)
+        {
+            if (owner == null || string.IsNullOrWhiteSpace(propertyName))
+            {
+                return false;
+            }
+
+            object hatch = GetPropertyValue(owner, propertyName);
+            if (hatch == null)
+            {
+                return false;
+            }
+
+            bool changed = false;
+            changed |= SetPropertyValue(hatch, "Name", string.Empty);
+            changed |= TrySetColorProperty(hatch, "Color", 0);
+            changed |= TrySetColorProperty(hatch, "BackgroundColor", 0);
+            changed |= TrySetColorProperty(hatch, "TrueColor", 0);
+            changed |= TrySetColorProperty(hatch, "TrueBackgroundColor", 0);
+            changed |= SetPropertyValue(hatch, "DrawBackgroundColor", false);
+            changed |= SetPropertyValue(owner, propertyName, hatch);
+            return changed;
         }
 
         private static bool TryApplyContourColorToView(object view, int colorIndex)
@@ -5649,7 +5653,9 @@ namespace WindowsFormsApp1
                 return true;
             }
 
-            return MatchesGuideLineStyle(attributes) || MatchesLegacyFitRectangleStyle(attributes);
+            return MatchesGuideLineStyle(attributes)
+                || MatchesLegacyFitRectangleStyle(attributes)
+                || MatchesAxisOverlayLineStyle(attributes);
         }
 
         private static bool HasGuideLineNamePrefix(object target)
@@ -5686,7 +5692,7 @@ namespace WindowsFormsApp1
                 return false;
             }
 
-            if (colorIndex != GuideLineColor)
+            if (!IsAxisOverlayColor(colorIndex))
             {
                 return false;
             }
@@ -5701,6 +5707,44 @@ namespace WindowsFormsApp1
             string lineTypeText = lineTypeValue.ToString();
             return !string.IsNullOrWhiteSpace(lineTypeText)
                 && lineTypeText.IndexOf("dashed", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool MatchesAxisOverlayLineStyle(object attributes)
+        {
+            if (attributes == null)
+            {
+                return false;
+            }
+
+            object lineTypeAttributes = GetPropertyValue(attributes, "Line");
+            if (lineTypeAttributes == null)
+            {
+                return false;
+            }
+
+            int colorIndex;
+            if (!TryReadGuideLineColorIndex(lineTypeAttributes, out colorIndex) || !IsAxisOverlayColor(colorIndex))
+            {
+                return false;
+            }
+
+            object lineTypeValue = GetPropertyValue(lineTypeAttributes, "Type")
+                ?? GetPropertyValue(lineTypeAttributes, "LineType");
+            string lineTypeText = lineTypeValue != null ? lineTypeValue.ToString() : string.Empty;
+
+            if (string.IsNullOrWhiteSpace(lineTypeText))
+            {
+                return true;
+            }
+
+            return lineTypeText.IndexOf("dashed", StringComparison.OrdinalIgnoreCase) < 0;
+        }
+
+        private static bool IsAxisOverlayColor(int colorIndex)
+        {
+            return colorIndex == OtherPlaneContourColor
+                || colorIndex == SideNegativeContourColor
+                || colorIndex == SidePositiveContourColor;
         }
 
         private static bool MatchesLegacyFitRectangleStyle(object attributes)
@@ -5808,6 +5852,12 @@ namespace WindowsFormsApp1
             {
                 plans[i].OriginalOffsetX = 0.0;
                 plans[i].OriginalOffsetY = 0.0;
+                plans[i].OffsetFromXAxisX = 0.0;
+                plans[i].OffsetFromXAxisY = 0.0;
+                plans[i].OffsetFromYAxisX = 0.0;
+                plans[i].OffsetFromYAxisY = 0.0;
+                plans[i].OffsetFromZAxisX = 0.0;
+                plans[i].OffsetFromZAxisY = 0.0;
                 plans[i].OffsetX = 0.0;
                 plans[i].OffsetY = 0.0;
                 plans[i].HasComputedOffset = false;
@@ -6081,6 +6131,12 @@ namespace WindowsFormsApp1
 
                 double explodeOffsetX = 0.0;
                 double explodeOffsetY = 0.0;
+                double xAxisOffsetX = 0.0;
+                double xAxisOffsetY = 0.0;
+                double yAxisOffsetX = 0.0;
+                double yAxisOffsetY = 0.0;
+                double zAxisOffsetX = 0.0;
+                double zAxisOffsetY = 0.0;
 
                 if (!ReferenceEquals(plan, mainPlan))
                 {
@@ -6132,8 +6188,12 @@ namespace WindowsFormsApp1
                     {
                         double normalizedDepth = Math.Min(1.0, Math.Abs(plan.LocalXFromMain) / maxAbsLocalX);
                         double amount = (baseExplodeSheet * 1.35) + ((gainExplodeSheet * 1.15) * normalizedDepth);
-                        explodeOffsetX += amount * sideOnZY * axisXSheetX;
-                        explodeOffsetY += amount * sideOnZY * axisXSheetY;
+                        double componentX = amount * sideOnZY * axisXSheetX;
+                        double componentY = amount * sideOnZY * axisXSheetY;
+                        xAxisOffsetX += componentX;
+                        xAxisOffsetY += componentY;
+                        explodeOffsetX += componentX;
+                        explodeOffsetY += componentY;
                         movedByZY++;
                     }
 
@@ -6143,8 +6203,12 @@ namespace WindowsFormsApp1
                         {
                             double normalizedDepth = Math.Min(1.0, Math.Abs(plan.LocalZFromMain) / maxAbsLocalZ);
                             double amount = baseExplodeSheet + (gainExplodeSheet * normalizedDepth);
-                            explodeOffsetX += amount * sideOnXY * axisZSheetX;
-                            explodeOffsetY += amount * sideOnXY * axisZSheetY;
+                            double componentX = amount * sideOnXY * axisZSheetX;
+                            double componentY = amount * sideOnXY * axisZSheetY;
+                            zAxisOffsetX += componentX;
+                            zAxisOffsetY += componentY;
+                            explodeOffsetX += componentX;
+                            explodeOffsetY += componentY;
                             movedByXY++;
                         }
                     }
@@ -6155,8 +6219,12 @@ namespace WindowsFormsApp1
                         {
                             double normalizedDepth = Math.Min(1.0, Math.Abs(plan.LocalYFromMain) / maxAbsLocalY);
                             double amount = baseExplodeSheet + (gainExplodeSheet * normalizedDepth);
-                            explodeOffsetX += amount * sideOnXZ * axisYSheetX;
-                            explodeOffsetY += amount * sideOnXZ * axisYSheetY;
+                            double componentX = amount * sideOnXZ * axisYSheetX;
+                            double componentY = amount * sideOnXZ * axisYSheetY;
+                            yAxisOffsetX += componentX;
+                            yAxisOffsetY += componentY;
+                            explodeOffsetX += componentX;
+                            explodeOffsetY += componentY;
                             movedByXZ++;
                         }
                     }
@@ -6167,8 +6235,12 @@ namespace WindowsFormsApp1
                         {
                             double normalizedDepth = Math.Min(1.0, Math.Abs(plan.LocalXFromMain) / maxAbsLocalX);
                             double amount = baseExplodeSheet + (gainExplodeSheet * normalizedDepth);
-                            explodeOffsetX += amount * sideOnZY * axisXSheetX;
-                            explodeOffsetY += amount * sideOnZY * axisXSheetY;
+                            double componentX = amount * sideOnZY * axisXSheetX;
+                            double componentY = amount * sideOnZY * axisXSheetY;
+                            xAxisOffsetX += componentX;
+                            xAxisOffsetY += componentY;
+                            explodeOffsetX += componentX;
+                            explodeOffsetY += componentY;
                             movedByZY++;
                         }
                     }
@@ -6184,6 +6256,12 @@ namespace WindowsFormsApp1
 
                 plan.OriginalOffsetX = baseOffsetX;
                 plan.OriginalOffsetY = baseOffsetY;
+                plan.OffsetFromXAxisX = xAxisOffsetX;
+                plan.OffsetFromXAxisY = xAxisOffsetY;
+                plan.OffsetFromYAxisX = yAxisOffsetX;
+                plan.OffsetFromYAxisY = yAxisOffsetY;
+                plan.OffsetFromZAxisX = zAxisOffsetX;
+                plan.OffsetFromZAxisY = zAxisOffsetY;
                 plan.OffsetX = baseOffsetX + explodeOffsetX;
                 plan.OffsetY = baseOffsetY + explodeOffsetY;
                 plan.HasComputedOffset = true;
@@ -7622,6 +7700,12 @@ namespace WindowsFormsApp1
             public bool HasComputedOffset;
             public double OriginalOffsetX;
             public double OriginalOffsetY;
+            public double OffsetFromXAxisX;
+            public double OffsetFromXAxisY;
+            public double OffsetFromYAxisX;
+            public double OffsetFromYAxisY;
+            public double OffsetFromZAxisX;
+            public double OffsetFromZAxisY;
             public double OffsetX;
             public double OffsetY;
         }
