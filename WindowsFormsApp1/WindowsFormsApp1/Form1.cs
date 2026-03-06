@@ -1121,16 +1121,17 @@ namespace WindowsFormsApp1
                 double rectMaxY;
                 int selectedObjectCount = 0;
                 int boundedSelectedCount = 0;
-                string targetAreaSource = useSelectedArea ? "area definida" : "folha inteira";
+                string targetAreaSource = useSelectedArea ? "2 pontos escolhidos" : "folha inteira";
+                bool pickerCancelled = false;
                 bool hasTargetRectangle = useSelectedArea
-                    ? TryGetSelectedPlacementRectangle(
-                        drawingHandler,
+                    ? TryPickPlacementRectangleByTwoPoints(
+                        activeDrawing,
+                        sheet,
                         out rectMinX,
                         out rectMinY,
                         out rectMaxX,
                         out rectMaxY,
-                        out selectedObjectCount,
-                        out boundedSelectedCount)
+                        out pickerCancelled)
                     : TryGetSheetPlacementRectangle(
                         sheet,
                         out rectMinX,
@@ -1142,8 +1143,16 @@ namespace WindowsFormsApp1
                 {
                     if (useSelectedArea)
                     {
-                        UpdateStatus("Falha: area definida nao encontrada.", Color.DarkOrange);
-                        SetOutput("Selecione o retangulo de area (ou objetos que o delimitem) e clique novamente.");
+                        if (pickerCancelled)
+                        {
+                            UpdateStatus("Cancelado: selecao da area interrompida.", Color.DarkOrange);
+                            SetOutput("A selecao por 2 pontos foi cancelada no Tekla.");
+                        }
+                        else
+                        {
+                            UpdateStatus("Falha: area definida nao encontrada.", Color.DarkOrange);
+                            SetOutput("Nao foi possivel capturar os 2 pontos da area no Tekla.");
+                        }
                     }
                     else
                     {
@@ -2916,6 +2925,140 @@ namespace WindowsFormsApp1
             return width > 1e-6 && height > 1e-6;
         }
 
+        private static bool TryPickPlacementRectangleByTwoPoints(
+            object activeDrawing,
+            object sheet,
+            out double minX,
+            out double minY,
+            out double maxX,
+            out double maxY,
+            out bool cancelled)
+        {
+            minX = 0.0;
+            minY = 0.0;
+            maxX = 0.0;
+            maxY = 0.0;
+            cancelled = false;
+
+            Type pickerType = ResolveTeklaType(
+                "Tekla.Structures.Drawing.UI.Picker",
+                "Tekla.Structures.Drawing",
+                TeklaDrawingDllCandidates);
+            if (pickerType == null)
+            {
+                return false;
+            }
+
+            if (activeDrawing == null)
+            {
+                return false;
+            }
+
+            object picker;
+            try
+            {
+                picker = Activator.CreateInstance(
+                    pickerType,
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    binder: null,
+                    args: new object[] { activeDrawing },
+                    culture: null);
+            }
+            catch
+            {
+                return false;
+            }
+
+            MethodInfo pickTwoPointsMethod = null;
+            MethodInfo[] pickerMethods = pickerType.GetMethods(BindingFlags.Public | BindingFlags.Instance);
+            for (int i = 0; i < pickerMethods.Length; i++)
+            {
+                MethodInfo candidate = pickerMethods[i];
+                if (!string.Equals(candidate.Name, "PickTwoPoints", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                ParameterInfo[] parameters = candidate.GetParameters();
+                if (parameters.Length == 5)
+                {
+                    pickTwoPointsMethod = candidate;
+                    break;
+                }
+            }
+
+            if (pickTwoPointsMethod == null)
+            {
+                return false;
+            }
+
+            object[] args = new object[]
+            {
+                "Clique no primeiro canto da area",
+                "Clique no canto oposto da area",
+                null,
+                null,
+                null
+            };
+
+            try
+            {
+                pickTwoPointsMethod.Invoke(picker, args);
+            }
+            catch (TargetInvocationException ex)
+            {
+                string errorText = ex.InnerException != null
+                    ? ex.InnerException.ToString()
+                    : ex.ToString();
+                if (!string.IsNullOrWhiteSpace(errorText)
+                    && errorText.IndexOf("PickerInterruptedException", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    cancelled = true;
+                    return false;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+
+            object firstPoint = args[2];
+            object secondPoint = args[3];
+            object pickedView = args[4];
+            if (firstPoint == null || secondPoint == null)
+            {
+                return false;
+            }
+
+            object firstPointInSheet;
+            object secondPointInSheet;
+            if (!TryConvertPointToSheetCoordinates(pickedView, sheet, firstPoint, out firstPointInSheet)
+                || !TryConvertPointToSheetCoordinates(pickedView, sheet, secondPoint, out secondPointInSheet))
+            {
+                return false;
+            }
+
+            double x1;
+            double y1;
+            double z1;
+            double x2;
+            double y2;
+            double z2;
+            if (!TryGetXYZ(firstPointInSheet, out x1, out y1, out z1)
+                || !TryGetXYZ(secondPointInSheet, out x2, out y2, out z2))
+            {
+                return false;
+            }
+
+            minX = Math.Min(x1, x2);
+            minY = Math.Min(y1, y2);
+            maxX = Math.Max(x1, x2);
+            maxY = Math.Max(y1, y2);
+            return Math.Abs(maxX - minX) > 1e-6 && Math.Abs(maxY - minY) > 1e-6;
+        }
+
         private static bool TryGetSheetPlacementRectangle(
             object sheet,
             out double minX,
@@ -2975,6 +3118,81 @@ namespace WindowsFormsApp1
             maxX = originX + width;
             maxY = originY + height;
             return true;
+        }
+
+        private static bool TryConvertPointToSheetCoordinates(
+            object fromView,
+            object sheet,
+            object pointInView,
+            out object pointInSheet)
+        {
+            pointInSheet = null;
+
+            if (pointInView == null)
+            {
+                return false;
+            }
+
+            if (fromView == null || sheet == null || ReferenceEquals(fromView, sheet))
+            {
+                pointInSheet = pointInView;
+                return true;
+            }
+
+            Type converterType = ResolveTeklaType(
+                "Tekla.Structures.Drawing.Tools.DrawingCoordinateConverter",
+                "Tekla.Structures.Drawing",
+                TeklaDrawingDllCandidates);
+            if (converterType != null)
+            {
+                MethodInfo[] methods = converterType.GetMethods(BindingFlags.Public | BindingFlags.Static);
+                for (int i = 0; i < methods.Length; i++)
+                {
+                    MethodInfo method = methods[i];
+                    if (!string.Equals(method.Name, "Convert", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    ParameterInfo[] parameters = method.GetParameters();
+                    if (parameters.Length != 3)
+                    {
+                        continue;
+                    }
+
+                    if (parameters[2].ParameterType.IsAssignableFrom(pointInView.GetType()))
+                    {
+                        try
+                        {
+                            pointInSheet = method.Invoke(null, new object[] { fromView, sheet, pointInView });
+                        }
+                        catch
+                        {
+                            pointInSheet = null;
+                        }
+
+                        if (pointInSheet != null)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            double px;
+            double py;
+            double pz;
+            double originX;
+            double originY;
+            double originZ;
+            if (TryGetXYZ(pointInView, out px, out py, out pz)
+                && TryGetXYZ(GetPropertyValue(fromView, "Origin"), out originX, out originY, out originZ))
+            {
+                pointInSheet = CreatePoint(originX + px, originY + py, originZ + pz);
+                return pointInSheet != null;
+            }
+
+            return false;
         }
 
         private static bool TryGetExactSelectionBounds2D(
