@@ -2,6 +2,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -13,27 +14,20 @@ namespace WindowsFormsApp1
 {
     public partial class Form1 : Form
     {
-        private static readonly string[] TeklaModelDllCandidates =
+        private static string[] TeklaModelDllCandidates
         {
-            @"C:\Program Files\Tekla Structures\2024.0\bin\plugins\Tekla.Structures.Model.dll",
-            @"C:\Program Files\Tekla Structures\2024.0\bin\Tekla.Structures.Model.dll",
-            @"C:\Program Files\Tekla Structures\2024.0\nt\bin\plugins\Tekla.Structures.Model.dll",
-            @"C:\Program Files\Tekla Structures\2024.0\nt\bin\Tekla.Structures.Model.dll"
-        };
+            get { return BuildTeklaDllCandidates("Tekla.Structures.Model.dll", true); }
+        }
 
-        private static readonly string[] TeklaDrawingDllCandidates =
+        private static string[] TeklaDrawingDllCandidates
         {
-            @"C:\Program Files\Tekla Structures\2024.0\bin\plugins\Tekla.Structures.Drawing.dll",
-            @"C:\Program Files\Tekla Structures\2024.0\bin\Tekla.Structures.Drawing.dll",
-            @"C:\Program Files\Tekla Structures\2024.0\nt\bin\plugins\Tekla.Structures.Drawing.dll",
-            @"C:\Program Files\Tekla Structures\2024.0\nt\bin\Tekla.Structures.Drawing.dll"
-        };
+            get { return BuildTeklaDllCandidates("Tekla.Structures.Drawing.dll", true); }
+        }
 
-        private static readonly string[] TeklaStructuresDllCandidates =
+        private static string[] TeklaStructuresDllCandidates
         {
-            @"C:\Program Files\Tekla Structures\2024.0\bin\Tekla.Structures.dll",
-            @"C:\Program Files\Tekla Structures\2024.0\nt\bin\Tekla.Structures.dll"
-        };
+            get { return BuildTeklaDllCandidates("Tekla.Structures.dll", false); }
+        }
 
         private const string ExplodedViewPrefix = "EXP_AUTO_";
         private const int MaxExplodedViews = 80;
@@ -58,6 +52,168 @@ namespace WindowsFormsApp1
         private const int ExpandedClientHeight = 571;
 
         private bool logExpanded;
+
+        private static string[] BuildTeklaDllCandidates(string dllName, bool includePlugins)
+        {
+            List<string> candidates = new List<string>();
+            string teklaHome = Environment.GetEnvironmentVariable("TEKLA_HOME");
+
+            AddTeklaDllCandidatesFromRoot(candidates, teklaHome, dllName, includePlugins);
+
+            string[] runningTeklaRoots = GetRunningTeklaInstallationRoots();
+            for (int i = 0; i < runningTeklaRoots.Length; i++)
+            {
+                AddTeklaDllCandidatesFromRoot(candidates, runningTeklaRoots[i], dllName, includePlugins);
+            }
+
+            List<string> programFilesRoots = new List<string>();
+            AddUniqueCandidate(programFilesRoots, Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+            AddUniqueCandidate(programFilesRoots, Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
+            AddUniqueCandidate(programFilesRoots, Environment.GetEnvironmentVariable("ProgramW6432"));
+
+            for (int rootIndex = 0; rootIndex < programFilesRoots.Count; rootIndex++)
+            {
+                string programFilesRoot = programFilesRoots[rootIndex];
+                if (string.IsNullOrWhiteSpace(programFilesRoot))
+                {
+                    continue;
+                }
+
+                string teklaBasePath = Path.Combine(programFilesRoot, "Tekla Structures");
+                if (Directory.Exists(teklaBasePath))
+                {
+                    string[] installationDirectories = Directory.GetDirectories(teklaBasePath);
+                    Array.Sort(installationDirectories, StringComparer.OrdinalIgnoreCase);
+                    for (int i = installationDirectories.Length - 1; i >= 0; i--)
+                    {
+                        AddTeklaDllCandidatesFromRoot(candidates, installationDirectories[i], dllName, includePlugins);
+                    }
+                }
+
+                // Mantem compatibilidade com layouts antigos caso a varredura dinamica nao encontre nada.
+                AddTeklaDllCandidatesFromRoot(
+                    candidates,
+                    Path.Combine(programFilesRoot, "Tekla Structures", "2024.0"),
+                    dllName,
+                    includePlugins);
+            }
+
+            return candidates.ToArray();
+        }
+
+        private static string[] GetRunningTeklaInstallationRoots()
+        {
+            List<string> roots = new List<string>();
+            try
+            {
+                Process[] processes = Process.GetProcessesByName("TeklaStructures");
+                for (int i = 0; i < processes.Length; i++)
+                {
+                    Process process = processes[i];
+                    try
+                    {
+                        string processPath = null;
+                        try
+                        {
+                            if (process.MainModule != null)
+                            {
+                                processPath = process.MainModule.FileName;
+                            }
+                        }
+                        catch
+                        {
+                            processPath = null;
+                        }
+
+                        string installationRoot = TryGetTeklaInstallationRootFromProcessPath(processPath);
+                        AddUniqueCandidate(roots, installationRoot);
+                    }
+                    finally
+                    {
+                        process.Dispose();
+                    }
+                }
+            }
+            catch
+            {
+                // Mantem fallback para varredura de instalacoes quando leitura de processo nao for permitida.
+            }
+
+            return roots.ToArray();
+        }
+
+        private static string TryGetTeklaInstallationRootFromProcessPath(string processPath)
+        {
+            if (string.IsNullOrWhiteSpace(processPath))
+            {
+                return null;
+            }
+
+            try
+            {
+                DirectoryInfo current = new FileInfo(processPath).Directory;
+                while (current != null)
+                {
+                    DirectoryInfo parent = current.Parent;
+                    if (parent != null
+                        && string.Equals(parent.Name, "Tekla Structures", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return current.FullName;
+                    }
+
+                    current = parent;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+
+            return null;
+        }
+
+        private static void AddTeklaDllCandidatesFromRoot(
+            List<string> candidates,
+            string rootPath,
+            string dllName,
+            bool includePlugins)
+        {
+            if (candidates == null
+                || string.IsNullOrWhiteSpace(rootPath)
+                || string.IsNullOrWhiteSpace(dllName))
+            {
+                return;
+            }
+
+            if (includePlugins)
+            {
+                AddUniqueCandidate(candidates, Path.Combine(rootPath, "bin", "plugins", dllName));
+                AddUniqueCandidate(candidates, Path.Combine(rootPath, "nt", "bin", "plugins", dllName));
+            }
+
+            AddUniqueCandidate(candidates, Path.Combine(rootPath, "bin", dllName));
+            AddUniqueCandidate(candidates, Path.Combine(rootPath, "nt", "bin", dllName));
+            AddUniqueCandidate(candidates, Path.Combine(rootPath, "bin", "Net48Runtime", dllName));
+            AddUniqueCandidate(candidates, Path.Combine(rootPath, "nt", "bin", "Net48Runtime", dllName));
+        }
+
+        private static void AddUniqueCandidate(List<string> candidates, string candidatePath)
+        {
+            if (string.IsNullOrWhiteSpace(candidatePath))
+            {
+                return;
+            }
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (string.Equals(candidates[i], candidatePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            candidates.Add(candidatePath);
+        }
 
         public Form1()
         {
@@ -85,6 +241,158 @@ namespace WindowsFormsApp1
         private void btnVerificarDesenho_Click(object sender, EventArgs e)
         {
             RefreshDrawingStatus(true);
+        }
+
+        private void btnFerramentaOrbita_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string previewSummary;
+                List<OrbitToolForm.PreviewPart> previewParts = BuildOrbitPreviewParts(out previewSummary);
+
+                using (OrbitToolForm orbitTool = new OrbitToolForm(previewParts, previewSummary))
+                {
+                    orbitTool.ShowDialog(this);
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus("Erro ao abrir ferramenta de orbita: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
+            }
+        }
+
+        // Fluxo paralelo de preview 3D: somente leitura dos dados atuais, sem alterar as logicas de explosao.
+        private List<OrbitToolForm.PreviewPart> BuildOrbitPreviewParts(out string summaryText)
+        {
+            List<OrbitToolForm.PreviewPart> previewParts = new List<OrbitToolForm.PreviewPart>();
+            summaryText = "Preview 3D indisponivel.";
+
+            try
+            {
+                object drawingHandler = CreateDrawingHandler();
+                if (drawingHandler == null)
+                {
+                    summaryText = "Falha: API de drawing do Tekla nao encontrada.";
+                    return previewParts;
+                }
+
+                object activeDrawing = InvokeParameterlessMethod(drawingHandler, "GetActiveDrawing");
+                if (activeDrawing == null)
+                {
+                    summaryText = "Abra um desenho no Tekla para carregar o preview 3D.";
+                    return previewParts;
+                }
+
+                int selectedObjectCount;
+                object sourceView = TryGetSelectedView(drawingHandler, out selectedObjectCount);
+                if (sourceView == null)
+                {
+                    summaryText = "Selecione uma vista no desenho para carregar o preview 3D.";
+                    return previewParts;
+                }
+
+                List<ExplodedPartPlan> partPlans = CollectPartPlansFromView(sourceView);
+                if (partPlans.Count == 0)
+                {
+                    summaryText = "A vista selecionada nao possui pecas legiveis para preview.";
+                    return previewParts;
+                }
+
+                object model = CreateModelInstance();
+                if (model == null)
+                {
+                    summaryText = "Falha: conexao com o modelo indisponivel para montar o preview.";
+                    return previewParts;
+                }
+
+                int insertedCount = 0;
+                int selectedCount = partPlans.Count;
+                int mainPartIndex = -1;
+                double bestMainScore = double.MinValue;
+
+                for (int i = 0; i < partPlans.Count; i++)
+                {
+                    ExplodedPartPlan plan = partPlans[i];
+
+                    double centerX;
+                    double centerY;
+                    double centerZ;
+                    double sizeScore;
+                    bool hasBounds;
+                    double minX;
+                    double minY;
+                    double minZ;
+                    double maxX;
+                    double maxY;
+                    double maxZ;
+                    if (!TryGetModelObjectCenterAndSize(
+                            model,
+                            plan.Identifier,
+                            out centerX,
+                            out centerY,
+                            out centerZ,
+                            out sizeScore,
+                            out hasBounds,
+                            out minX,
+                            out minY,
+                            out minZ,
+                            out maxX,
+                            out maxY,
+                            out maxZ))
+                    {
+                        continue;
+                    }
+
+                    if (!hasBounds)
+                    {
+                        continue;
+                    }
+
+                    string label = string.IsNullOrWhiteSpace(plan.IdentifierKey)
+                        ? "Parte " + (insertedCount + 1).ToString()
+                        : plan.IdentifierKey;
+
+                    previewParts.Add(
+                        new OrbitToolForm.PreviewPart(
+                            label,
+                            minX,
+                            minY,
+                            minZ,
+                            maxX,
+                            maxY,
+                            maxZ,
+                            false));
+
+                    if (sizeScore > bestMainScore)
+                    {
+                        bestMainScore = sizeScore;
+                        mainPartIndex = insertedCount;
+                    }
+
+                    insertedCount++;
+                }
+
+                if (mainPartIndex >= 0 && mainPartIndex < previewParts.Count)
+                {
+                    previewParts[mainPartIndex].IsMainPart = true;
+                }
+
+                summaryText = previewParts.Count > 0
+                    ? "Preview 3D da vista selecionada. Objetos selecionados: "
+                        + selectedObjectCount
+                        + ". Pecas carregadas: "
+                        + previewParts.Count
+                        + "/"
+                        + selectedCount
+                        + "."
+                    : "Nao foi possivel montar bounds 3D das pecas da vista selecionada.";
+            }
+            catch (Exception ex)
+            {
+                summaryText = "Erro ao montar preview 3D: " + GetInnermostExceptionMessage(ex);
+            }
+
+            return previewParts;
         }
 
         private void RefreshTeklaStatus(bool updateOutput)
@@ -3601,12 +3909,14 @@ namespace WindowsFormsApp1
 
         private static object CreateModelInstance()
         {
+            TryLoadAssemblyFromCandidates(TeklaStructuresDllCandidates);
             Type modelType = ResolveTeklaModelType();
             return modelType != null ? Activator.CreateInstance(modelType) : null;
         }
 
         private static Type ResolveTeklaModelType()
         {
+            TryLoadAssemblyFromCandidates(TeklaStructuresDllCandidates);
             return ResolveTeklaType(
                 "Tekla.Structures.Model.Model",
                 "Tekla.Structures.Model",
@@ -3650,11 +3960,80 @@ namespace WindowsFormsApp1
                     continue;
                 }
 
-                Assembly loadedAssembly = Assembly.LoadFrom(dllPath);
-                resolved = loadedAssembly.GetType(fullTypeName, false);
-                if (resolved != null)
+                try
                 {
-                    return resolved;
+                    Assembly loadedAssembly = Assembly.LoadFrom(dllPath);
+                    resolved = loadedAssembly.GetType(fullTypeName, false);
+                    if (resolved != null)
+                    {
+                        return resolved;
+                    }
+                }
+                catch
+                {
+                    continue;
+                }
+            }
+
+            return null;
+        }
+
+        private static Assembly TryLoadAssemblyFromCandidates(string[] candidatePaths)
+        {
+            if (candidatePaths == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < candidatePaths.Length; i++)
+            {
+                string dllPath = candidatePaths[i];
+                if (string.IsNullOrWhiteSpace(dllPath) || !File.Exists(dllPath))
+                {
+                    continue;
+                }
+
+                string simpleName = Path.GetFileNameWithoutExtension(dllPath);
+                Assembly alreadyLoaded = FindLoadedAssembly(simpleName);
+                if (alreadyLoaded != null)
+                {
+                    return alreadyLoaded;
+                }
+
+                try
+                {
+                    return Assembly.LoadFrom(dllPath);
+                }
+                catch
+                {
+                    continue;
+                }
+            }
+
+            return null;
+        }
+
+        private static Assembly FindLoadedAssembly(string simpleAssemblyName)
+        {
+            if (string.IsNullOrWhiteSpace(simpleAssemblyName))
+            {
+                return null;
+            }
+
+            Assembly[] loaded = AppDomain.CurrentDomain.GetAssemblies();
+            for (int i = 0; i < loaded.Length; i++)
+            {
+                Assembly assembly = loaded[i];
+                if (assembly == null)
+                {
+                    continue;
+                }
+
+                AssemblyName name = assembly.GetName();
+                if (name != null
+                    && string.Equals(name.Name, simpleAssemblyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return assembly;
                 }
             }
 

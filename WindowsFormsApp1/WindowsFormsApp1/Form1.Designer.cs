@@ -33,6 +33,7 @@ namespace WindowsFormsApp1
             this.lblTeklaStatusLink = new System.Windows.Forms.Label();
             this.pnlDrawingIndicator = new System.Windows.Forms.Panel();
             this.lblDrawingStatusLink = new System.Windows.Forms.Label();
+            this.btnFerramentaOrbita = new System.Windows.Forms.Button();
             this.chkGhostLinhas = new System.Windows.Forms.CheckBox();
             this.chkLinhas = new System.Windows.Forms.CheckBox();
             this.chkColorir = new System.Windows.Forms.CheckBox();
@@ -98,6 +99,19 @@ namespace WindowsFormsApp1
             this.lblDrawingStatusLink.TabIndex = 3;
             this.lblDrawingStatusLink.Text = "O Desenho";
             this.lblDrawingStatusLink.Click += new System.EventHandler(this.btnVerificarDesenho_Click);
+            // 
+            // btnFerramentaOrbita
+            // 
+            this.btnFerramentaOrbita.BackColor = System.Drawing.Color.White;
+            this.btnFerramentaOrbita.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnFerramentaOrbita.Font = new System.Drawing.Font("Segoe UI", 8.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btnFerramentaOrbita.Location = new System.Drawing.Point(257, 14);
+            this.btnFerramentaOrbita.Name = "btnFerramentaOrbita";
+            this.btnFerramentaOrbita.Size = new System.Drawing.Size(41, 25);
+            this.btnFerramentaOrbita.TabIndex = 20;
+            this.btnFerramentaOrbita.Text = "Orb";
+            this.btnFerramentaOrbita.UseVisualStyleBackColor = false;
+            this.btnFerramentaOrbita.Click += new System.EventHandler(this.btnFerramentaOrbita_Click);
             // 
             // chkGhostLinhas
             // 
@@ -329,6 +343,7 @@ namespace WindowsFormsApp1
             this.Controls.Add(this.chkColorir);
             this.Controls.Add(this.chkLinhas);
             this.Controls.Add(this.chkGhostLinhas);
+            this.Controls.Add(this.btnFerramentaOrbita);
             this.Controls.Add(this.lblDrawingStatusLink);
             this.Controls.Add(this.pnlDrawingIndicator);
             this.Controls.Add(this.lblTeklaStatusLink);
@@ -351,6 +366,7 @@ namespace WindowsFormsApp1
         private System.Windows.Forms.Label lblTeklaStatusLink;
         private System.Windows.Forms.Panel pnlDrawingIndicator;
         private System.Windows.Forms.Label lblDrawingStatusLink;
+        private System.Windows.Forms.Button btnFerramentaOrbita;
         private System.Windows.Forms.CheckBox chkGhostLinhas;
         private System.Windows.Forms.CheckBox chkLinhas;
         private System.Windows.Forms.CheckBox chkColorir;
