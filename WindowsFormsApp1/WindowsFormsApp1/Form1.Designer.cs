@@ -44,6 +44,7 @@ namespace WindowsFormsApp1
             this.btnLimparVistaExplodida = new System.Windows.Forms.Button();
             this.lblStatusTekla = new System.Windows.Forms.Label();
             this.btnToggleLog = new System.Windows.Forms.Button();
+            this.chkTeste = new System.Windows.Forms.CheckBox();
             this.pnlLog = new System.Windows.Forms.Panel();
             this.txtSaida = new System.Windows.Forms.TextBox();
             this.pnlLog.SuspendLayout();
@@ -225,15 +226,25 @@ namespace WindowsFormsApp1
             this.btnToggleLog.UseVisualStyleBackColor = true;
             this.btnToggleLog.Click += new System.EventHandler(this.btnToggleLog_Click);
             // 
+            // chkTeste
+            // 
+            this.chkTeste.AutoSize = true;
+            this.chkTeste.Location = new System.Drawing.Point(22, 329);
+            this.chkTeste.Name = "chkTeste";
+            this.chkTeste.Size = new System.Drawing.Size(60, 20);
+            this.chkTeste.TabIndex = 15;
+            this.chkTeste.Text = "Teste";
+            this.chkTeste.UseVisualStyleBackColor = true;
+            // 
             // pnlLog
             // 
             this.pnlLog.BackColor = System.Drawing.Color.White;
             this.pnlLog.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.pnlLog.Controls.Add(this.txtSaida);
-            this.pnlLog.Location = new System.Drawing.Point(22, 330);
+            this.pnlLog.Location = new System.Drawing.Point(22, 357);
             this.pnlLog.Name = "pnlLog";
             this.pnlLog.Size = new System.Drawing.Size(276, 174);
-            this.pnlLog.TabIndex = 15;
+            this.pnlLog.TabIndex = 16;
             this.pnlLog.Visible = false;
             // 
             // txtSaida
@@ -254,9 +265,10 @@ namespace WindowsFormsApp1
             // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(244)))), ((int)(((byte)(246)))), ((int)(((byte)(248)))));
-            this.ClientSize = new System.Drawing.Size(320, 336);
+            this.ClientSize = new System.Drawing.Size(320, 363);
             this.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.Controls.Add(this.pnlLog);
+            this.Controls.Add(this.chkTeste);
             this.Controls.Add(this.btnToggleLog);
             this.Controls.Add(this.lblStatusTekla);
             this.Controls.Add(this.btnLimparVistaExplodida);
@@ -301,6 +313,7 @@ namespace WindowsFormsApp1
         private System.Windows.Forms.Button btnLimparVistaExplodida;
         private System.Windows.Forms.Label lblStatusTekla;
         private System.Windows.Forms.Button btnToggleLog;
+        private System.Windows.Forms.CheckBox chkTeste;
         private System.Windows.Forms.Panel pnlLog;
         private System.Windows.Forms.TextBox txtSaida;
     }

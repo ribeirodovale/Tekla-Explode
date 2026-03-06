@@ -46,13 +46,16 @@ namespace WindowsFormsApp1
         private const string GuideLineNamePrefix = "EXP_AUTO_GUIDE_";
         private const int GuideLineColor = 160; // DrawingColors.Red
         private const string FitRectangleNamePrefix = "EXP_AUTO_RECT_";
+        private const string TestAxisNamePrefix = "EXP_AUTO_AXIS_";
         private const int FitRectangleColor = 164; // DrawingColors.Yellow
         private const double FitRectanglePadding = 8.0;
         private const double FitRectangleBorderPadding = 3.0;
+        private const double TestAxisPaddingRatio = 0.12;
+        private const double TestAxisMinimumLength = 18.0;
         private const double FitScaleFactorMin = 0.20;
         private const double FitScaleFactorMax = 4.00;
-        private const int CollapsedClientHeight = 336;
-        private const int ExpandedClientHeight = 520;
+        private const int CollapsedClientHeight = 363;
+        private const int ExpandedClientHeight = 547;
 
         private bool logExpanded;
 
@@ -1158,6 +1161,7 @@ namespace WindowsFormsApp1
             bool ghostEnabled = chkGhostLinhas.Checked;
             bool guideLinesEnabled = chkLinhas.Checked;
             bool colorirEnabled = chkColorir.Checked;
+            bool testEnabled = chkTeste.Checked;
 
             if (!usePlaneXY && !usePlaneXZ && !usePlaneZY)
             {
@@ -1417,6 +1421,8 @@ namespace WindowsFormsApp1
                 int guideLinesRequested = 0;
                 int guideLinesCreated = 0;
                 int guideLinesFailed = 0;
+                int testAxisRequested = 0;
+                int testAxisCreated = 0;
                 int viewSequence = 1;
 
                 for (int i = 0; i < partPlans.Count; i++)
@@ -1544,22 +1550,24 @@ namespace WindowsFormsApp1
                             failed++;
                         }
 
-                        if (guideLinesEnabled)
-                        {
-                            guideLinesRequested++;
-                            if (explodedCreated
-                                && TryCreateGuideLine(
-                                    sheet,
-                                    anchorX + plan.OriginalOffsetX,
-                                    anchorY + plan.OriginalOffsetY,
-                                    anchorZ,
-                                    anchorX + plan.OffsetX,
-                                    anchorY + plan.OffsetY,
-                                    anchorZ))
-                            {
-                                guideLinesCreated++;
-                            }
-                            else
+                if (guideLinesEnabled)
+                {
+                    guideLinesRequested++;
+                    if (explodedCreated
+                        && TryCreateGuideLineForPlan(
+                            sheet,
+                            anchorX + plan.OriginalOffsetX,
+                            anchorY + plan.OriginalOffsetY,
+                            anchorZ,
+                            anchorX + plan.OffsetX,
+                            anchorY + plan.OffsetY,
+                            anchorZ,
+                            plan,
+                            colorirEnabled))
+                    {
+                        guideLinesCreated++;
+                    }
+                    else
                             {
                                 guideLinesFailed++;
                             }
@@ -1628,14 +1636,16 @@ namespace WindowsFormsApp1
                     if (guideLinesEnabled && !plan.IsMainPart)
                     {
                         guideLinesRequested++;
-                        if (TryCreateGuideLine(
+                        if (TryCreateGuideLineForPlan(
                                 sheet,
                                 anchorX + plan.OriginalOffsetX,
                                 anchorY + plan.OriginalOffsetY,
                                 anchorZ,
                                 anchorX + plan.OffsetX,
                                 anchorY + plan.OffsetY,
-                                anchorZ))
+                                anchorZ,
+                                plan,
+                                colorirEnabled))
                         {
                             guideLinesCreated++;
                         }
@@ -1666,6 +1676,24 @@ namespace WindowsFormsApp1
                         anchorZ);
                 }
 
+                if (testEnabled)
+                {
+                    testAxisRequested = 3;
+
+                    testAxisCreated = TryCreateMainPartTestAxesOverlay(
+                        sheet,
+                        sourceView,
+                        model,
+                        partPlans,
+                        sourceScaleForFit,
+                        anchorX,
+                        anchorY,
+                        anchorZ,
+                        true,
+                        true,
+                        true);
+                }
+
                 CommitActiveDrawingChanges(activeDrawing);
                 InvokeParameterlessMethod(drawingHandler, "SaveActiveDrawing");
 
@@ -1681,6 +1709,7 @@ namespace WindowsFormsApp1
                 report.AppendLine("Ghost: " + (ghostEnabled ? "ligado" : "desligado"));
                 report.AppendLine("Linhas: " + (guideLinesEnabled ? "ligado" : "desligado"));
                 report.AppendLine("Colorir: " + (colorirEnabled ? "ligado" : "desligado"));
+                report.AppendLine("Teste: " + (testEnabled ? "ligado" : "desligado"));
                 report.AppendLine("Modo: " + targetAreaSource);
                 report.AppendLine("Area alvo usada: " + targetAreaSource);
                 report.AppendLine("Objetos selecionados no desenho: " + selectedObjectCount);
@@ -1727,6 +1756,11 @@ namespace WindowsFormsApp1
                     report.AppendLine("Linhas guia criadas: " + guideLinesCreated);
                     report.AppendLine("Linhas guia falhas: " + guideLinesFailed);
                 }
+                if (testEnabled)
+                {
+                    report.AppendLine("Linhas de teste solicitadas: " + testAxisRequested);
+                    report.AppendLine("Linhas de teste criadas: " + testAxisCreated);
+                }
                 report.AppendLine("Vistas criadas: " + created);
                 report.AppendLine("Falhas: " + failed);
                 report.AppendLine();
@@ -1768,33 +1802,72 @@ namespace WindowsFormsApp1
                 return MainPartContourColor;
             }
 
-            if (plan.IsOtherPlane)
+            return GetAxisColorForPlan(plan);
+        }
+
+        private static int GetAxisColorForPlan(ExplodedPartPlan plan)
+        {
+            if (plan == null)
+            {
+                return 0;
+            }
+
+            if (plan.ColorPlane == 3 || plan.IsOtherPlane)
             {
                 return OtherPlaneContourColor;
             }
 
-            int sideForColor = plan.SideOfXYPlane;
-            if (sideForColor == 0)
-            {
-                sideForColor = plan.SideOfXZPlane;
-            }
-
-            if (sideForColor == 0)
-            {
-                sideForColor = plan.SideOfZYPlane;
-            }
-
-            if (sideForColor > 0)
-            {
-                return SidePositiveContourColor;
-            }
-
-            if (sideForColor < 0)
+            if (plan.ColorPlane == 2)
             {
                 return SideNegativeContourColor;
             }
 
+            if (plan.ColorPlane == 1)
+            {
+                return SidePositiveContourColor;
+            }
+
+            if (plan.SideOfZYPlane != 0)
+            {
+                return OtherPlaneContourColor;
+            }
+
+            if (plan.SideOfXZPlane != 0)
+            {
+                return SideNegativeContourColor;
+            }
+
+            if (plan.SideOfXYPlane != 0)
+            {
+                return SidePositiveContourColor;
+            }
+
             return 0;
+        }
+
+        private static bool TryCreateGuideLineForPlan(
+            object viewBase,
+            double startX,
+            double startY,
+            double startZ,
+            double endX,
+            double endY,
+            double endZ,
+            ExplodedPartPlan plan,
+            bool colorirEnabled)
+        {
+            if (!colorirEnabled)
+            {
+                return TryCreateGuideLine(viewBase, startX, startY, startZ, endX, endY, endZ);
+            }
+
+            int colorIndex = GetAxisColorForPlan(plan);
+            if (colorIndex <= 0)
+            {
+                colorIndex = GuideLineColor;
+            }
+
+            return TryCreateGuideLineColored(viewBase, startX, startY, startZ, endX, endY, endZ, colorIndex);
         }
 
         private static bool TryCreateGuideLine(
@@ -1904,6 +1977,30 @@ namespace WindowsFormsApp1
             return inserted.HasValue && inserted.Value;
         }
 
+        private static bool TryCreateGuideLineColored(
+            object viewBase,
+            double startX,
+            double startY,
+            double startZ,
+            double endX,
+            double endY,
+            double endZ,
+            int colorIndex)
+        {
+            string guideLineName = GuideLineNamePrefix + Guid.NewGuid().ToString("N");
+            return TryCreateNamedLine(
+                viewBase,
+                startX,
+                startY,
+                startZ,
+                endX,
+                endY,
+                endZ,
+                guideLineName,
+                colorIndex,
+                true);
+        }
+
         private static bool ApplyGuideLineStyle(object lineAttributes)
         {
             if (lineAttributes == null)
@@ -1961,6 +2058,540 @@ namespace WindowsFormsApp1
             }
 
             return created == 4;
+        }
+
+        private static int TryCreateMainPartTestAxesOverlay(
+            object viewBase,
+            object sourceView,
+            object model,
+            List<ExplodedPartPlan> plans,
+            double viewScale,
+            double anchorX,
+            double anchorY,
+            double anchorZ,
+            bool drawAxisX,
+            bool drawAxisY,
+            bool drawAxisZ)
+        {
+            if (viewBase == null || sourceView == null || model == null || plans == null || plans.Count == 0)
+            {
+                return 0;
+            }
+
+            bool? modelConnected = InvokeBoolMethod(model, "GetConnectionStatus");
+            if (!modelConnected.HasValue || !modelConnected.Value)
+            {
+                return 0;
+            }
+
+            ExplodedPartPlan mainPlan;
+            if (!TryGetMainPartPlanForTestAxes(plans, out mainPlan) || mainPlan == null || mainPlan.Identifier == null)
+            {
+                return 0;
+            }
+
+            double modelCenterX;
+            double modelCenterY;
+            double modelCenterZ;
+            double sizeScore;
+            bool hasBounds;
+            double minX;
+            double minY;
+            double minZ;
+            double maxX;
+            double maxY;
+            double maxZ;
+            if (!TryGetModelObjectCenterAndSize(
+                    model,
+                    mainPlan.Identifier,
+                    out modelCenterX,
+                    out modelCenterY,
+                    out modelCenterZ,
+                    out sizeScore,
+                    out hasBounds,
+                    out minX,
+                    out minY,
+                    out minZ,
+                    out maxX,
+                    out maxY,
+                    out maxZ))
+            {
+                return 0;
+            }
+
+            double localAxisXx;
+            double localAxisXy;
+            double localAxisXz;
+            double localAxisYx;
+            double localAxisYy;
+            double localAxisYz;
+            double localAxisZx;
+            double localAxisZy;
+            double localAxisZz;
+            if (!TryGetMainLocalAxes(
+                    model,
+                    mainPlan.Identifier,
+                    out localAxisXx,
+                    out localAxisXy,
+                    out localAxisXz,
+                    out localAxisYx,
+                    out localAxisYy,
+                    out localAxisYz,
+                    out localAxisZx,
+                    out localAxisZy,
+                    out localAxisZz))
+            {
+                return 0;
+            }
+
+            double viewAxisXx;
+            double viewAxisXy;
+            double viewAxisXz;
+            double viewAxisYx;
+            double viewAxisYy;
+            double viewAxisYz;
+            if (!TryGetViewDisplayAxes(
+                    sourceView,
+                    out viewAxisXx,
+                    out viewAxisXy,
+                    out viewAxisXz,
+                    out viewAxisYx,
+                    out viewAxisYy,
+                    out viewAxisYz))
+            {
+                return 0;
+            }
+
+            double axisXSheetX = Dot3D(localAxisXx, localAxisXy, localAxisXz, viewAxisXx, viewAxisXy, viewAxisXz);
+            double axisXSheetY = Dot3D(localAxisXx, localAxisXy, localAxisXz, viewAxisYx, viewAxisYy, viewAxisYz);
+            double axisYSheetX = Dot3D(localAxisYx, localAxisYy, localAxisYz, viewAxisXx, viewAxisXy, viewAxisXz);
+            double axisYSheetY = Dot3D(localAxisYx, localAxisYy, localAxisYz, viewAxisYx, viewAxisYy, viewAxisYz);
+            double axisZSheetX = Dot3D(localAxisZx, localAxisZy, localAxisZz, viewAxisXx, viewAxisXy, viewAxisXz);
+            double axisZSheetY = Dot3D(localAxisZx, localAxisZy, localAxisZz, viewAxisYx, viewAxisYy, viewAxisYz);
+
+            if (!NormalizeVector2D(ref axisXSheetX, ref axisXSheetY)
+                || !NormalizeVector2D(ref axisYSheetX, ref axisYSheetY)
+                || !NormalizeVector2D(ref axisZSheetX, ref axisZSheetY))
+            {
+                return 0;
+            }
+
+            double scaleDivisor = viewScale > 0.0 ? viewScale : 1.0;
+            double centerSheetX = anchorX + mainPlan.OffsetX;
+            double centerSheetY = anchorY + mainPlan.OffsetY;
+
+            int created = 0;
+            if (drawAxisX)
+            {
+                double spanX = ComputeMainPartAxisSpanForTest(
+                    hasBounds,
+                    modelCenterX,
+                    modelCenterY,
+                    modelCenterZ,
+                    minX,
+                    minY,
+                    minZ,
+                    maxX,
+                    maxY,
+                    maxZ,
+                    localAxisXx,
+                    localAxisXy,
+                    localAxisXz,
+                    sizeScore);
+                if (TryCreateCenteredTestAxisLine(
+                        viewBase,
+                        centerSheetX,
+                        centerSheetY,
+                        anchorZ,
+                        axisXSheetX,
+                        axisXSheetY,
+                        spanX / scaleDivisor,
+                        OtherPlaneContourColor,
+                        "X"))
+                {
+                    created++;
+                }
+            }
+
+            if (drawAxisY)
+            {
+                double spanY = ComputeMainPartAxisSpanForTest(
+                    hasBounds,
+                    modelCenterX,
+                    modelCenterY,
+                    modelCenterZ,
+                    minX,
+                    minY,
+                    minZ,
+                    maxX,
+                    maxY,
+                    maxZ,
+                    localAxisYx,
+                    localAxisYy,
+                    localAxisYz,
+                    sizeScore);
+                if (TryCreateCenteredTestAxisLine(
+                        viewBase,
+                        centerSheetX,
+                        centerSheetY,
+                        anchorZ,
+                        axisYSheetX,
+                        axisYSheetY,
+                        spanY / scaleDivisor,
+                        SideNegativeContourColor,
+                        "Y"))
+                {
+                    created++;
+                }
+            }
+
+            if (drawAxisZ)
+            {
+                double spanZ = ComputeMainPartAxisSpanForTest(
+                    hasBounds,
+                    modelCenterX,
+                    modelCenterY,
+                    modelCenterZ,
+                    minX,
+                    minY,
+                    minZ,
+                    maxX,
+                    maxY,
+                    maxZ,
+                    localAxisZx,
+                    localAxisZy,
+                    localAxisZz,
+                    sizeScore);
+                if (TryCreateCenteredTestAxisLine(
+                        viewBase,
+                        centerSheetX,
+                        centerSheetY,
+                        anchorZ,
+                        axisZSheetX,
+                        axisZSheetY,
+                        spanZ / scaleDivisor,
+                        SidePositiveContourColor,
+                        "Z"))
+                {
+                    created++;
+                }
+            }
+
+            return created;
+        }
+
+        private static bool TryGetMainPartPlanForTestAxes(List<ExplodedPartPlan> plans, out ExplodedPartPlan mainPlan)
+        {
+            mainPlan = null;
+            if (plans == null || plans.Count == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < plans.Count; i++)
+            {
+                if (plans[i] != null && plans[i].IsMainPart)
+                {
+                    mainPlan = plans[i];
+                    return true;
+                }
+            }
+
+            double bestScore = double.MinValue;
+            for (int i = 0; i < plans.Count; i++)
+            {
+                ExplodedPartPlan candidate = plans[i];
+                if (candidate == null)
+                {
+                    continue;
+                }
+
+                double score = candidate.ModelSizeScore > 0.0 ? candidate.ModelSizeScore : candidate.ApproxSize2D;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    mainPlan = candidate;
+                }
+            }
+
+            return mainPlan != null;
+        }
+
+        private static double ComputeMainPartAxisSpanForTest(
+            bool hasBounds,
+            double centerX,
+            double centerY,
+            double centerZ,
+            double minX,
+            double minY,
+            double minZ,
+            double maxX,
+            double maxY,
+            double maxZ,
+            double axisX,
+            double axisY,
+            double axisZ,
+            double fallbackSpan)
+        {
+            double span = hasBounds
+                ? ComputeBoundsSpanAlongAxisForTest(
+                    centerX,
+                    centerY,
+                    centerZ,
+                    minX,
+                    minY,
+                    minZ,
+                    maxX,
+                    maxY,
+                    maxZ,
+                    axisX,
+                    axisY,
+                    axisZ)
+                : 0.0;
+
+            if (span <= 1e-6)
+            {
+                span = Math.Max(1.0, fallbackSpan);
+            }
+
+            return span * (1.0 + TestAxisPaddingRatio);
+        }
+
+        private static double ComputeBoundsSpanAlongAxisForTest(
+            double centerX,
+            double centerY,
+            double centerZ,
+            double minX,
+            double minY,
+            double minZ,
+            double maxX,
+            double maxY,
+            double maxZ,
+            double axisX,
+            double axisY,
+            double axisZ)
+        {
+            double[] xs = { minX, maxX };
+            double[] ys = { minY, maxY };
+            double[] zs = { minZ, maxZ };
+
+            bool initialized = false;
+            double minLocal = 0.0;
+            double maxLocal = 0.0;
+
+            for (int ix = 0; ix < xs.Length; ix++)
+            {
+                for (int iy = 0; iy < ys.Length; iy++)
+                {
+                    for (int iz = 0; iz < zs.Length; iz++)
+                    {
+                        double localValue = Dot3D(
+                            xs[ix] - centerX,
+                            ys[iy] - centerY,
+                            zs[iz] - centerZ,
+                            axisX,
+                            axisY,
+                            axisZ);
+
+                        if (!initialized)
+                        {
+                            minLocal = localValue;
+                            maxLocal = localValue;
+                            initialized = true;
+                        }
+                        else
+                        {
+                            if (localValue < minLocal)
+                            {
+                                minLocal = localValue;
+                            }
+
+                            if (localValue > maxLocal)
+                            {
+                                maxLocal = localValue;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return initialized ? Math.Max(0.0, maxLocal - minLocal) : 0.0;
+        }
+
+        private static bool TryCreateCenteredTestAxisLine(
+            object viewBase,
+            double centerX,
+            double centerY,
+            double centerZ,
+            double directionX,
+            double directionY,
+            double sheetLength,
+            int colorIndex,
+            string axisName)
+        {
+            if (viewBase == null)
+            {
+                return false;
+            }
+
+            double safeLength = Math.Max(TestAxisMinimumLength, sheetLength);
+            double halfLength = safeLength * 0.5;
+            double labelOffset = Math.Max(3.0, safeLength * 0.04);
+            double startX = centerX - (directionX * halfLength);
+            double startY = centerY - (directionY * halfLength);
+            double endX = centerX + (directionX * halfLength);
+            double endY = centerY + (directionY * halfLength);
+            string lineName = TestAxisNamePrefix + axisName + "_" + Guid.NewGuid().ToString("N");
+
+            bool lineCreated = TryCreateNamedLine(
+                viewBase,
+                startX,
+                startY,
+                centerZ,
+                endX,
+                endY,
+                centerZ,
+                lineName,
+                colorIndex,
+                false);
+            if (!lineCreated)
+            {
+                return false;
+            }
+
+            TryCreateAxisLabelText(
+                viewBase,
+                endX + (directionX * labelOffset),
+                endY + (directionY * labelOffset),
+                centerZ,
+                axisName + "+",
+                colorIndex);
+            TryCreateAxisLabelText(
+                viewBase,
+                startX - (directionX * labelOffset),
+                startY - (directionY * labelOffset),
+                centerZ,
+                axisName + "-",
+                colorIndex);
+            return true;
+        }
+
+        private static bool TryCreateAxisLabelText(
+            object viewBase,
+            double x,
+            double y,
+            double z,
+            string labelText,
+            int colorIndex)
+        {
+            if (viewBase == null || string.IsNullOrWhiteSpace(labelText))
+            {
+                return false;
+            }
+
+            object insertionPoint = CreatePoint(x, y, z);
+            if (insertionPoint == null)
+            {
+                return false;
+            }
+
+            Type textType = ResolveTeklaType(
+                "Tekla.Structures.Drawing.Text",
+                "Tekla.Structures.Drawing",
+                TeklaDrawingDllCandidates);
+            if (textType == null)
+            {
+                return false;
+            }
+
+            Type textAttributesType = ResolveTeklaType(
+                "Tekla.Structures.Drawing.Text+TextAttributes",
+                "Tekla.Structures.Drawing",
+                TeklaDrawingDllCandidates);
+
+            object textAttributes = null;
+            if (textAttributesType != null)
+            {
+                try
+                {
+                    textAttributes = Activator.CreateInstance(textAttributesType);
+                }
+                catch
+                {
+                    textAttributes = null;
+                }
+            }
+
+            if (textAttributes != null)
+            {
+                SetPropertyValue(textAttributes, "TransparentBackground", true);
+
+                object font = GetPropertyValue(textAttributes, "Font");
+                if (font == null)
+                {
+                    Type fontType = ResolveTeklaType(
+                        "Tekla.Structures.Drawing.FontAttributes",
+                        "Tekla.Structures.Drawing",
+                        TeklaDrawingDllCandidates);
+                    if (fontType != null)
+                    {
+                        try
+                        {
+                            font = Activator.CreateInstance(fontType);
+                        }
+                        catch
+                        {
+                            font = null;
+                        }
+                    }
+                }
+
+                if (font != null)
+                {
+                    TrySetColorProperty(font, "Color", colorIndex);
+                    TrySetColorProperty(font, "TrueColor", colorIndex);
+                    SetPropertyValue(font, "Height", 4.0);
+                    SetPropertyValue(textAttributes, "Font", font);
+                }
+            }
+
+            object textObject = null;
+            if (textAttributes != null)
+            {
+                try
+                {
+                    textObject = Activator.CreateInstance(textType, new object[] { viewBase, insertionPoint, labelText, textAttributes });
+                }
+                catch
+                {
+                    textObject = null;
+                }
+            }
+
+            if (textObject == null)
+            {
+                try
+                {
+                    textObject = Activator.CreateInstance(textType, new object[] { viewBase, insertionPoint, labelText });
+                }
+                catch
+                {
+                    textObject = null;
+                }
+            }
+
+            if (textObject == null)
+            {
+                return false;
+            }
+
+            if (textAttributes != null)
+            {
+                SetPropertyValue(textObject, "Attributes", textAttributes, "Tekla.Structures.Drawing.Text");
+            }
+
+            bool? inserted = InvokeBoolMethod(textObject, "Insert");
+            return inserted.HasValue && inserted.Value;
         }
 
         private static bool TryCreateNamedLine(
@@ -4608,7 +5239,7 @@ namespace WindowsFormsApp1
                 }
 
                 object drawingObject = current.GetValue(allObjects, null);
-                if (!IsLineObject(drawingObject))
+                if (!IsHelperOverlayObject(drawingObject))
                 {
                     continue;
                 }
@@ -4630,6 +5261,11 @@ namespace WindowsFormsApp1
             }
 
             return removed;
+        }
+
+        private static bool IsHelperOverlayObject(object drawingObject)
+        {
+            return IsLineObject(drawingObject) || IsAxisLabelTextObject(drawingObject);
         }
 
         private static bool IsLineObject(object drawingObject)
@@ -4660,11 +5296,75 @@ namespace WindowsFormsApp1
             return string.Equals(typeName, "Polyline", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsAxisLabelTextObject(object drawingObject)
+        {
+            if (drawingObject == null)
+            {
+                return false;
+            }
+
+            Type type = drawingObject.GetType();
+            string fullName = type != null ? type.FullName : null;
+            string typeName = type != null ? type.Name : null;
+            bool isText = string.Equals(fullName, "Tekla.Structures.Drawing.Text", StringComparison.Ordinal)
+                || string.Equals(typeName, "Text", StringComparison.OrdinalIgnoreCase);
+            if (!isText)
+            {
+                return false;
+            }
+
+            object rawText = GetPropertyValue(drawingObject, "TextString");
+            string text = rawText != null ? rawText.ToString() : string.Empty;
+            if (!IsAxisLabelText(text))
+            {
+                return false;
+            }
+
+            object attributes = GetPropertyValue(drawingObject, "Attributes");
+            object font = attributes != null ? GetPropertyValue(attributes, "Font") : null;
+            if (font == null)
+            {
+                return true;
+            }
+
+            int colorIndex;
+            return TryReadGuideLineColorIndex(font, out colorIndex)
+                && (colorIndex == OtherPlaneContourColor
+                    || colorIndex == SideNegativeContourColor
+                    || colorIndex == SidePositiveContourColor);
+        }
+
+        private static bool IsAxisLabelText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            switch (text.Trim().ToUpperInvariant())
+            {
+                case "X+":
+                case "X-":
+                case "Y+":
+                case "Y-":
+                case "Z+":
+                case "Z-":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         private static bool IsGuideLineObject(object drawingObject)
         {
             if (drawingObject == null)
             {
                 return false;
+            }
+
+            if (IsAxisLabelTextObject(drawingObject))
+            {
+                return true;
             }
 
             if (HasGuideLineNamePrefix(drawingObject))
@@ -4692,7 +5392,8 @@ namespace WindowsFormsApp1
             string name = rawName != null ? rawName.ToString() : string.Empty;
             return !string.IsNullOrWhiteSpace(name)
                 && (name.StartsWith(GuideLineNamePrefix, StringComparison.OrdinalIgnoreCase)
-                    || name.StartsWith(FitRectangleNamePrefix, StringComparison.OrdinalIgnoreCase));
+                    || name.StartsWith(FitRectangleNamePrefix, StringComparison.OrdinalIgnoreCase)
+                    || name.StartsWith(TestAxisNamePrefix, StringComparison.OrdinalIgnoreCase));
         }
 
         private static bool MatchesGuideLineStyle(object attributes)
