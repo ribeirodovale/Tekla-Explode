@@ -8,6 +8,9 @@ namespace WindowsFormsApp1
 {
     public sealed class OrbitToolForm : Form
     {
+        public const double DefaultPreviewYawRadians = 0.0;
+        public const double DefaultPreviewPitchRadians = 0.0;
+
         public sealed class PreviewPart
         {
             public PreviewPart(
@@ -73,48 +76,81 @@ namespace WindowsFormsApp1
             MinimumSize = new Size(760, 520);
             BackColor = Color.FromArgb(238, 240, 244);
 
-            Panel headerPanel = new Panel();
-            headerPanel.Dock = DockStyle.Top;
-            headerPanel.Height = 64;
-            headerPanel.BackColor = Color.FromArgb(245, 246, 248);
+            Control previewSurface = CreatePreviewSurface(parts, summaryText);
+            previewSurface.Dock = DockStyle.Fill;
+            Controls.Add(previewSurface);
+        }
 
-            Label lblTitle = new Label();
-            lblTitle.AutoSize = true;
-            lblTitle.Location = new Point(14, 10);
-            lblTitle.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold, GraphicsUnit.Point, 0);
-            lblTitle.ForeColor = Color.FromArgb(48, 55, 68);
-            lblTitle.Text = "Representacao 3D da vista selecionada";
+        public static PreviewSurfaceControl CreatePreviewSurface(IList<PreviewPart> parts, string summaryText)
+        {
+            return new PreviewSurfaceControl(parts, summaryText);
+        }
 
-            Label lblSummary = new Label();
-            lblSummary.Location = new Point(14, 31);
-            lblSummary.Size = new Size(730, 26);
-            lblSummary.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point, 0);
-            lblSummary.ForeColor = Color.FromArgb(86, 94, 109);
-            lblSummary.Text = string.IsNullOrWhiteSpace(summaryText) ? "Sem dados." : summaryText;
+        public sealed class PreviewSurfaceControl : Panel
+        {
+            private readonly OrbitPreviewViewportControl viewport;
 
-            OrbitGizmoControl gizmo = new OrbitGizmoControl();
-            gizmo.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            gizmo.Location = new Point(812, 8);
-            gizmo.Size = new Size(72, 50);
+            public PreviewSurfaceControl(IList<PreviewPart> parts, string summaryText)
+            {
+                BackColor = Color.FromArgb(238, 240, 244);
+                Margin = new Padding(0);
+                Padding = new Padding(0);
 
-            headerPanel.Controls.Add(lblTitle);
-            headerPanel.Controls.Add(lblSummary);
-            headerPanel.Controls.Add(gizmo);
+                Panel headerPanel = new Panel();
+                headerPanel.Dock = DockStyle.Top;
+                headerPanel.Height = 64;
+                headerPanel.BackColor = Color.FromArgb(245, 246, 248);
 
-            OrbitPreviewViewportControl viewport = new OrbitPreviewViewportControl(parts);
-            viewport.Dock = DockStyle.Fill;
+                Label lblTitle = new Label();
+                lblTitle.AutoSize = true;
+                lblTitle.Location = new Point(14, 10);
+                lblTitle.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold, GraphicsUnit.Point, 0);
+                lblTitle.ForeColor = Color.FromArgb(48, 55, 68);
+                lblTitle.Text = "Representacao 3D da vista selecionada";
 
-            Label lblHelp = new Label();
-            lblHelp.Dock = DockStyle.Bottom;
-            lblHelp.Height = 24;
-            lblHelp.TextAlign = ContentAlignment.MiddleCenter;
-            lblHelp.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point, 0);
-            lblHelp.ForeColor = Color.FromArgb(80, 87, 100);
-            lblHelp.Text = "Mouse esquerdo: orbita  |  Mouse direito: pan  |  Roda: zoom  |  Duplo clique: reset";
+                Label lblSummary = new Label();
+                lblSummary.Location = new Point(14, 31);
+                lblSummary.Size = new Size(730, 26);
+                lblSummary.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point, 0);
+                lblSummary.ForeColor = Color.FromArgb(86, 94, 109);
+                lblSummary.Text = string.IsNullOrWhiteSpace(summaryText) ? "Sem dados." : summaryText;
 
-            Controls.Add(viewport);
-            Controls.Add(lblHelp);
-            Controls.Add(headerPanel);
+                OrbitGizmoControl gizmo = new OrbitGizmoControl();
+                gizmo.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                gizmo.Location = new Point(812, 8);
+                gizmo.Size = new Size(72, 50);
+
+                headerPanel.Controls.Add(lblTitle);
+                headerPanel.Controls.Add(lblSummary);
+                headerPanel.Controls.Add(gizmo);
+
+                viewport = new OrbitPreviewViewportControl(parts);
+                viewport.Dock = DockStyle.Fill;
+
+                Label lblHelp = new Label();
+                lblHelp.Dock = DockStyle.Bottom;
+                lblHelp.Height = 24;
+                lblHelp.TextAlign = ContentAlignment.MiddleCenter;
+                lblHelp.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point, 0);
+                lblHelp.ForeColor = Color.FromArgb(80, 87, 100);
+                lblHelp.Text = "Mouse esquerdo: orbita  |  Mouse direito: pan  |  Roda: zoom  |  Duplo clique: reset";
+
+                Controls.Add(viewport);
+                Controls.Add(lblHelp);
+                Controls.Add(headerPanel);
+            }
+
+            public bool TryGetCameraAngles(out double yawRadians, out double pitchRadians)
+            {
+                if (viewport == null)
+                {
+                    yawRadians = 0.0;
+                    pitchRadians = 0.0;
+                    return false;
+                }
+
+                return viewport.TryGetCameraAngles(out yawRadians, out pitchRadians);
+            }
         }
 
         private sealed class OrbitPreviewViewportControl : Control
@@ -131,8 +167,8 @@ namespace WindowsFormsApp1
             private MouseButtons dragButton = MouseButtons.None;
             private Point lastMouse;
 
-            private double yawRadians = -0.55;
-            private double pitchRadians = 0.40;
+            private double yawRadians = DefaultPreviewYawRadians;
+            private double pitchRadians = DefaultPreviewPitchRadians;
             private float panPixelsX;
             private float panPixelsY;
             private double cameraDistance = 3000.0;
@@ -285,10 +321,17 @@ namespace WindowsFormsApp1
                 Invalidate();
             }
 
+            public bool TryGetCameraAngles(out double yawRadians, out double pitchRadians)
+            {
+                yawRadians = this.yawRadians;
+                pitchRadians = this.pitchRadians;
+                return true;
+            }
+
             private void ResetCamera()
             {
-                yawRadians = -0.55;
-                pitchRadians = 0.40;
+                yawRadians = DefaultPreviewYawRadians;
+                pitchRadians = DefaultPreviewPitchRadians;
                 panPixelsX = 0f;
                 panPixelsY = 0f;
                 cameraDistance = Math.Max(sceneExtent * 2.8, 80.0);

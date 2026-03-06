@@ -34,6 +34,8 @@ namespace WindowsFormsApp1
             this.pnlDrawingIndicator = new System.Windows.Forms.Panel();
             this.lblDrawingStatusLink = new System.Windows.Forms.Label();
             this.btnFerramentaOrbita = new System.Windows.Forms.Button();
+            this.pnlPreviewHost = new System.Windows.Forms.Panel();
+            this.chkRotacaoPreview = new System.Windows.Forms.CheckBox();
             this.chkGhostLinhas = new System.Windows.Forms.CheckBox();
             this.chkLinhas = new System.Windows.Forms.CheckBox();
             this.chkColorir = new System.Windows.Forms.CheckBox();
@@ -49,6 +51,7 @@ namespace WindowsFormsApp1
             this.lblStatusTekla = new System.Windows.Forms.Label();
             this.btnToggleLog = new System.Windows.Forms.Button();
             this.chkTeste = new System.Windows.Forms.CheckBox();
+            this.btnCriarEixos = new System.Windows.Forms.Button();
             this.pnlLog = new System.Windows.Forms.Panel();
             this.txtSaida = new System.Windows.Forms.TextBox();
             this.pnlLog.SuspendLayout();
@@ -105,13 +108,35 @@ namespace WindowsFormsApp1
             this.btnFerramentaOrbita.BackColor = System.Drawing.Color.White;
             this.btnFerramentaOrbita.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnFerramentaOrbita.Font = new System.Drawing.Font("Segoe UI", 8.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btnFerramentaOrbita.Location = new System.Drawing.Point(257, 14);
+            this.btnFerramentaOrbita.Location = new System.Drawing.Point(228, 14);
             this.btnFerramentaOrbita.Name = "btnFerramentaOrbita";
-            this.btnFerramentaOrbita.Size = new System.Drawing.Size(41, 25);
+            this.btnFerramentaOrbita.Size = new System.Drawing.Size(70, 25);
             this.btnFerramentaOrbita.TabIndex = 20;
-            this.btnFerramentaOrbita.Text = "Orb";
+            this.btnFerramentaOrbita.Text = "Preview";
             this.btnFerramentaOrbita.UseVisualStyleBackColor = false;
             this.btnFerramentaOrbita.Click += new System.EventHandler(this.btnFerramentaOrbita_Click);
+            // 
+            // pnlPreviewHost
+            // 
+            this.pnlPreviewHost.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
+            | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.pnlPreviewHost.BackColor = System.Drawing.Color.WhiteSmoke;
+            this.pnlPreviewHost.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.pnlPreviewHost.Location = new System.Drawing.Point(320, 18);
+            this.pnlPreviewHost.Name = "pnlPreviewHost";
+            this.pnlPreviewHost.Size = new System.Drawing.Size(718, 349);
+            this.pnlPreviewHost.TabIndex = 21;
+            // 
+            // chkRotacaoPreview
+            // 
+            this.chkRotacaoPreview.AutoSize = true;
+            this.chkRotacaoPreview.Location = new System.Drawing.Point(158, 128);
+            this.chkRotacaoPreview.Name = "chkRotacaoPreview";
+            this.chkRotacaoPreview.Size = new System.Drawing.Size(122, 20);
+            this.chkRotacaoPreview.TabIndex = 22;
+            this.chkRotacaoPreview.Text = "Rotacao preview";
+            this.chkRotacaoPreview.UseVisualStyleBackColor = true;
             // 
             // chkGhostLinhas
             // 
@@ -296,6 +321,18 @@ namespace WindowsFormsApp1
             this.chkTeste.Text = "Teste";
             this.chkTeste.UseVisualStyleBackColor = true;
             // 
+            // btnCriarEixos
+            // 
+            this.btnCriarEixos.BackColor = System.Drawing.Color.White;
+            this.btnCriarEixos.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnCriarEixos.Location = new System.Drawing.Point(91, 349);
+            this.btnCriarEixos.Name = "btnCriarEixos";
+            this.btnCriarEixos.Size = new System.Drawing.Size(207, 27);
+            this.btnCriarEixos.TabIndex = 19;
+            this.btnCriarEixos.Text = "Criar eixos";
+            this.btnCriarEixos.UseVisualStyleBackColor = true;
+            this.btnCriarEixos.Click += new System.EventHandler(this.btnCriarEixos_Click);
+            // 
             // pnlLog
             // 
             this.pnlLog.BackColor = System.Drawing.Color.White;
@@ -304,7 +341,7 @@ namespace WindowsFormsApp1
             this.pnlLog.Location = new System.Drawing.Point(22, 381);
             this.pnlLog.Name = "pnlLog";
             this.pnlLog.Size = new System.Drawing.Size(276, 174);
-            this.pnlLog.TabIndex = 19;
+            this.pnlLog.TabIndex = 20;
             this.pnlLog.Visible = false;
             // 
             // txtSaida
@@ -325,9 +362,12 @@ namespace WindowsFormsApp1
             // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(244)))), ((int)(((byte)(246)))), ((int)(((byte)(248)))));
-            this.ClientSize = new System.Drawing.Size(320, 387);
+            this.ClientSize = new System.Drawing.Size(1060, 387);
             this.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.Controls.Add(this.pnlPreviewHost);
+            this.Controls.Add(this.chkRotacaoPreview);
             this.Controls.Add(this.pnlLog);
+            this.Controls.Add(this.btnCriarEixos);
             this.Controls.Add(this.chkTeste);
             this.Controls.Add(this.btnToggleLog);
             this.Controls.Add(this.lblStatusTekla);
@@ -348,8 +388,8 @@ namespace WindowsFormsApp1
             this.Controls.Add(this.pnlDrawingIndicator);
             this.Controls.Add(this.lblTeklaStatusLink);
             this.Controls.Add(this.pnlTeklaIndicator);
-            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle;
-            this.MaximizeBox = false;
+            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.Sizable;
+            this.MinimumSize = new System.Drawing.Size(960, 426);
             this.Name = "Form1";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "Integracao Tekla";
@@ -367,6 +407,8 @@ namespace WindowsFormsApp1
         private System.Windows.Forms.Panel pnlDrawingIndicator;
         private System.Windows.Forms.Label lblDrawingStatusLink;
         private System.Windows.Forms.Button btnFerramentaOrbita;
+        private System.Windows.Forms.Panel pnlPreviewHost;
+        private System.Windows.Forms.CheckBox chkRotacaoPreview;
         private System.Windows.Forms.CheckBox chkGhostLinhas;
         private System.Windows.Forms.CheckBox chkLinhas;
         private System.Windows.Forms.CheckBox chkColorir;
@@ -382,6 +424,7 @@ namespace WindowsFormsApp1
         private System.Windows.Forms.Label lblStatusTekla;
         private System.Windows.Forms.Button btnToggleLog;
         private System.Windows.Forms.CheckBox chkTeste;
+        private System.Windows.Forms.Button btnCriarEixos;
         private System.Windows.Forms.Panel pnlLog;
         private System.Windows.Forms.TextBox txtSaida;
     }

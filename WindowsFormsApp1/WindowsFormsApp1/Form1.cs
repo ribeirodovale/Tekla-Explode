@@ -52,6 +52,7 @@ namespace WindowsFormsApp1
         private const int ExpandedClientHeight = 571;
 
         private bool logExpanded;
+        private Control orbitPreviewControl;
 
         private static string[] BuildTeklaDllCandidates(string dllName, bool includePlugins)
         {
@@ -226,6 +227,7 @@ namespace WindowsFormsApp1
         {
             RefreshTeklaStatus(false);
             RefreshDrawingStatus(false);
+            RefreshEmbeddedOrbitPreview(false);
         }
 
         private void btnToggleLog_Click(object sender, EventArgs e)
@@ -245,19 +247,253 @@ namespace WindowsFormsApp1
 
         private void btnFerramentaOrbita_Click(object sender, EventArgs e)
         {
+            RefreshEmbeddedOrbitPreview(true);
+        }
+
+        private void btnCriarEixos_Click(object sender, EventArgs e)
+        {
             try
             {
-                string previewSummary;
-                List<OrbitToolForm.PreviewPart> previewParts = BuildOrbitPreviewParts(out previewSummary);
-
-                using (OrbitToolForm orbitTool = new OrbitToolForm(previewParts, previewSummary))
+                object drawingHandler = CreateDrawingHandler();
+                if (drawingHandler == null)
                 {
-                    orbitTool.ShowDialog(this);
+                    UpdateStatus("Falha: API de drawing do Tekla nao encontrada.", Color.DarkRed);
+                    SetOutput("Nao foi possivel carregar Tekla.Structures.Drawing.DrawingHandler.");
+                    return;
+                }
+
+                object activeDrawing = InvokeParameterlessMethod(drawingHandler, "GetActiveDrawing");
+                if (activeDrawing == null)
+                {
+                    UpdateStatus("Falha: nenhum desenho aberto no Tekla.", Color.DarkOrange);
+                    SetOutput("Abra um desenho no Tekla antes de criar os eixos.");
+                    return;
+                }
+
+                object sheet = InvokeParameterlessMethod(activeDrawing, "GetSheet");
+                if (sheet == null)
+                {
+                    UpdateStatus("Falha: nao foi possivel ler a folha do desenho.", Color.DarkRed);
+                    SetOutput("Drawing.GetSheet retornou nulo.");
+                    return;
+                }
+
+                double yawRadians;
+                double pitchRadians;
+                if (!TryGetPreviewCameraAngles(out yawRadians, out pitchRadians))
+                {
+                    UpdateStatus("Falha: preview 3D indisponivel para extrair rotacao.", Color.DarkOrange);
+                    SetOutput("Atualize o preview 3D e ajuste a camera antes de criar os eixos.");
+                    return;
+                }
+
+                double rectMinX;
+                double rectMinY;
+                double rectMaxX;
+                double rectMaxY;
+                if (!TryGetSheetPlacementRectangle(sheet, out rectMinX, out rectMinY, out rectMaxX, out rectMaxY))
+                {
+                    UpdateStatus("Falha: nao foi possivel ler os limites da folha.", Color.DarkOrange);
+                    SetOutput("TryGetSheetPlacementRectangle falhou para o desenho ativo.");
+                    return;
+                }
+
+                object sheetOrigin = GetPropertyValue(sheet, "Origin");
+                double sheetOriginX;
+                double sheetOriginY;
+                double sheetOriginZ;
+                if (!TryGetXYZ(sheetOrigin, out sheetOriginX, out sheetOriginY, out sheetOriginZ))
+                {
+                    sheetOriginZ = 0.0;
+                }
+
+                double anchorX = (rectMinX + rectMaxX) * 0.5;
+                double anchorY = (rectMinY + rectMaxY) * 0.5;
+                double anchorZ = sheetOriginZ;
+
+                double cosYaw = Math.Cos(yawRadians);
+                double sinYaw = Math.Sin(yawRadians);
+                double cosPitch = Math.Cos(pitchRadians);
+                double sinPitch = Math.Sin(pitchRadians);
+
+                double axisXDirX = cosYaw;
+                double axisXDirY = sinPitch * sinYaw;
+                double axisYDirX = 0.0;
+                double axisYDirY = cosPitch;
+                double axisZDirX = sinYaw;
+                double axisZDirY = -sinPitch * cosYaw;
+
+                double rectWidth = Math.Max(1.0, Math.Abs(rectMaxX - rectMinX));
+                double rectHeight = Math.Max(1.0, Math.Abs(rectMaxY - rectMinY));
+                double axisLength = Math.Max(TestAxisMinimumLength, Math.Min(rectWidth, rectHeight) * 0.38);
+
+                int removedAxes = DeleteExistingTestAxes(sheet);
+                int axisCreated = TryCreatePreviewAlignedTestAxesOverlay(
+                    sheet,
+                    anchorX,
+                    anchorY,
+                    anchorZ,
+                    axisLength,
+                    axisXDirX,
+                    axisXDirY,
+                    axisYDirX,
+                    axisYDirY,
+                    axisZDirX,
+                    axisZDirY,
+                    true,
+                    true,
+                    true);
+
+                if (removedAxes > 0 || axisCreated > 0)
+                {
+                    CommitActiveDrawingChanges(activeDrawing);
+                    InvokeParameterlessMethod(drawingHandler, "SaveActiveDrawing");
+                }
+
+                StringBuilder report = new StringBuilder();
+                report.AppendLine("Criar eixos (sem explosao)");
+                report.AppendLine("--------------------------");
+                report.AppendLine("Centro usado: centro da folha");
+                report.AppendLine("Centro (X,Y): " + anchorX.ToString("0.###") + ", " + anchorY.ToString("0.###"));
+                report.AppendLine("Area da folha: W=" + rectWidth.ToString("0.###") + " H=" + rectHeight.ToString("0.###"));
+                report.AppendLine("Comprimento dos eixos: " + axisLength.ToString("0.###"));
+                report.AppendLine("Rotacao camera preview: yaw=" + (yawRadians * (180.0 / Math.PI)).ToString("0.###")
+                    + "deg, pitch=" + (pitchRadians * (180.0 / Math.PI)).ToString("0.###") + "deg");
+                report.AppendLine("Eixos antigos removidos: " + removedAxes);
+                report.AppendLine("Eixos criados: " + axisCreated);
+                report.AppendLine();
+                report.AppendLine("Obs.: eixos alinhados com a camera atual do preview 3D.");
+                SetOutput(report.ToString());
+
+                if (axisCreated > 0)
+                {
+                    UpdateStatus("Sucesso: eixos criados no centro da folha com rotacao do preview.", Color.DarkGreen);
+                }
+                else
+                {
+                    UpdateStatus("Falha: nao foi possivel criar os eixos.", Color.DarkOrange);
                 }
             }
             catch (Exception ex)
             {
-                UpdateStatus("Erro ao abrir ferramenta de orbita: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
+                UpdateStatus("Erro ao criar eixos: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
+            }
+        }
+
+        private void RefreshEmbeddedOrbitPreview(bool updateStatus)
+        {
+            try
+            {
+                string previewSummary;
+                List<OrbitToolForm.PreviewPart> previewParts = BuildOrbitPreviewParts(out previewSummary);
+                Control previewSurface = OrbitToolForm.CreatePreviewSurface(previewParts, previewSummary);
+                ReplaceOrbitPreviewSurface(previewSurface);
+
+                if (updateStatus)
+                {
+                    if (previewParts.Count > 0)
+                    {
+                        UpdateStatus("Preview 3D atualizado na tela principal.", Color.DarkGreen);
+                    }
+                    else
+                    {
+                        UpdateStatus(previewSummary, Color.DarkOrange);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (updateStatus)
+                {
+                    UpdateStatus("Erro ao atualizar preview 3D: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
+                }
+            }
+        }
+
+        private void ReplaceOrbitPreviewSurface(Control previewSurface)
+        {
+            if (pnlPreviewHost == null || previewSurface == null)
+            {
+                return;
+            }
+
+            pnlPreviewHost.SuspendLayout();
+            try
+            {
+                if (orbitPreviewControl != null)
+                {
+                    pnlPreviewHost.Controls.Remove(orbitPreviewControl);
+                    orbitPreviewControl.Dispose();
+                    orbitPreviewControl = null;
+                }
+
+                previewSurface.Dock = DockStyle.Fill;
+                orbitPreviewControl = previewSurface;
+                pnlPreviewHost.Controls.Add(orbitPreviewControl);
+                orbitPreviewControl.BringToFront();
+            }
+            finally
+            {
+                pnlPreviewHost.ResumeLayout();
+            }
+        }
+
+        private bool TryGetPreviewCameraAngles(out double yawRadians, out double pitchRadians)
+        {
+            yawRadians = 0.0;
+            pitchRadians = 0.0;
+
+            OrbitToolForm.PreviewSurfaceControl previewSurface =
+                orbitPreviewControl as OrbitToolForm.PreviewSurfaceControl;
+            if (previewSurface == null)
+            {
+                return false;
+            }
+
+            return previewSurface.TryGetCameraAngles(out yawRadians, out pitchRadians);
+        }
+
+        private bool TryGetPreviewRotationDegrees(out double rotationXDegrees, out double rotationYDegrees)
+        {
+            rotationXDegrees = 0.0;
+            rotationYDegrees = 0.0;
+
+            double yawRadians;
+            double pitchRadians;
+            if (!TryGetPreviewCameraAngles(out yawRadians, out pitchRadians))
+            {
+                return false;
+            }
+
+            const double ToDegrees = 180.0 / Math.PI;
+            rotationXDegrees = -pitchRadians * ToDegrees;
+            rotationYDegrees = -yawRadians * ToDegrees;
+            return true;
+        }
+
+        private void ApplyFallbackRotation(object view, bool autoIsoApplied, ref int fallbackRotationCount)
+        {
+            if (view == null)
+            {
+                return;
+            }
+
+            if (chkRotacaoPreview != null && chkRotacaoPreview.Checked)
+            {
+                double rotationXDegrees;
+                double rotationYDegrees;
+                if (TryGetPreviewRotationDegrees(out rotationXDegrees, out rotationYDegrees))
+                {
+                    RotateViewToAngles(view, rotationXDegrees, rotationYDegrees);
+                    fallbackRotationCount++;
+                    return;
+                }
+            }
+
+            if (!autoIsoApplied && RotateExplodedToIsometric)
+            {
+                RotateViewToIsometric(view);
+                fallbackRotationCount++;
             }
         }
 
@@ -283,18 +519,56 @@ namespace WindowsFormsApp1
                     return previewParts;
                 }
 
+                object sourceView = null;
+                string sourceDescription = "vista selecionada";
                 int selectedObjectCount;
-                object sourceView = TryGetSelectedView(drawingHandler, out selectedObjectCount);
+                sourceView = TryGetSelectedView(drawingHandler, out selectedObjectCount);
+
+                int inspectedViews = 0;
+                int candidateViews = 0;
                 if (sourceView == null)
                 {
-                    summaryText = "Selecione uma vista no desenho para carregar o preview 3D.";
+                    object sheet = InvokeParameterlessMethod(activeDrawing, "GetSheet");
+                    if (sheet != null)
+                    {
+                        string sourceViewName;
+                        double sourceIsoScore;
+                        if (TryFindBestIsometricViewInSheet(
+                                sheet,
+                                out sourceView,
+                                out inspectedViews,
+                                out candidateViews,
+                                out sourceViewName,
+                                out sourceIsoScore)
+                            && sourceView != null)
+                        {
+                            sourceDescription = string.IsNullOrWhiteSpace(sourceViewName)
+                                ? "vista detectada automaticamente"
+                                : "vista detectada automaticamente (" + sourceViewName + ")";
+                        }
+                    }
+                }
+
+                if (sourceView == null)
+                {
+                    summaryText = "Nenhuma vista valida foi encontrada no desenho ativo para montar o preview.";
                     return previewParts;
                 }
 
                 List<ExplodedPartPlan> partPlans = CollectPartPlansFromView(sourceView);
                 if (partPlans.Count == 0)
                 {
-                    summaryText = "A vista selecionada nao possui pecas legiveis para preview.";
+                    int mergedInspectedViews;
+                    int mergedCandidateViews;
+                    partPlans = CollectPartPlansFromDrawing(activeDrawing, out mergedInspectedViews, out mergedCandidateViews);
+                    sourceDescription = "desenho ativo (conjunto de vistas)";
+                    inspectedViews = Math.Max(inspectedViews, mergedInspectedViews);
+                    candidateViews = Math.Max(candidateViews, mergedCandidateViews);
+                }
+
+                if (partPlans.Count == 0)
+                {
+                    summaryText = "Nenhuma peca legivel foi encontrada nas vistas do desenho ativo.";
                     return previewParts;
                 }
 
@@ -309,6 +583,37 @@ namespace WindowsFormsApp1
                 int selectedCount = partPlans.Count;
                 int mainPartIndex = -1;
                 double bestMainScore = double.MinValue;
+
+                double viewOriginX;
+                double viewOriginY;
+                double viewOriginZ;
+                bool hasViewOrigin = TryGetXYZ(GetPropertyValue(sourceView, "Origin"), out viewOriginX, out viewOriginY, out viewOriginZ);
+
+                double axisXx;
+                double axisXy;
+                double axisXz;
+                double axisYx;
+                double axisYy;
+                double axisYz;
+                bool hasViewAxes = TryGetViewDisplayAxes(
+                    sourceView,
+                    out axisXx,
+                    out axisXy,
+                    out axisXz,
+                    out axisYx,
+                    out axisYy,
+                    out axisYz);
+                double axisZx = 0.0;
+                double axisZy = 0.0;
+                double axisZz = 1.0;
+                bool useViewLocalCoordinates = false;
+                if (hasViewOrigin && hasViewAxes)
+                {
+                    axisZx = (axisXy * axisYz) - (axisXz * axisYy);
+                    axisZy = (axisXz * axisYx) - (axisXx * axisYz);
+                    axisZz = (axisXx * axisYy) - (axisXy * axisYx);
+                    useViewLocalCoordinates = NormalizeVector3D(ref axisZx, ref axisZy, ref axisZz);
+                }
 
                 for (int i = 0; i < partPlans.Count; i++)
                 {
@@ -348,6 +653,56 @@ namespace WindowsFormsApp1
                         continue;
                     }
 
+                    double previewMinX = minX;
+                    double previewMinY = minY;
+                    double previewMinZ = minZ;
+                    double previewMaxX = maxX;
+                    double previewMaxY = maxY;
+                    double previewMaxZ = maxZ;
+
+                    if (useViewLocalCoordinates)
+                    {
+                        double localMinX;
+                        double localMinY;
+                        double localMinZ;
+                        double localMaxX;
+                        double localMaxY;
+                        double localMaxZ;
+                        if (TryTransformModelBoundsToViewLocal(
+                                minX,
+                                minY,
+                                minZ,
+                                maxX,
+                                maxY,
+                                maxZ,
+                                viewOriginX,
+                                viewOriginY,
+                                viewOriginZ,
+                                axisXx,
+                                axisXy,
+                                axisXz,
+                                axisYx,
+                                axisYy,
+                                axisYz,
+                                axisZx,
+                                axisZy,
+                                axisZz,
+                                out localMinX,
+                                out localMinY,
+                                out localMinZ,
+                                out localMaxX,
+                                out localMaxY,
+                                out localMaxZ))
+                        {
+                            previewMinX = localMinX;
+                            previewMinY = localMinY;
+                            previewMinZ = localMinZ;
+                            previewMaxX = localMaxX;
+                            previewMaxY = localMaxY;
+                            previewMaxZ = localMaxZ;
+                        }
+                    }
+
                     string label = string.IsNullOrWhiteSpace(plan.IdentifierKey)
                         ? "Parte " + (insertedCount + 1).ToString()
                         : plan.IdentifierKey;
@@ -355,12 +710,12 @@ namespace WindowsFormsApp1
                     previewParts.Add(
                         new OrbitToolForm.PreviewPart(
                             label,
-                            minX,
-                            minY,
-                            minZ,
-                            maxX,
-                            maxY,
-                            maxZ,
+                            previewMinX,
+                            previewMinY,
+                            previewMinZ,
+                            previewMaxX,
+                            previewMaxY,
+                            previewMaxZ,
                             false));
 
                     if (sizeScore > bestMainScore)
@@ -378,14 +733,20 @@ namespace WindowsFormsApp1
                 }
 
                 summaryText = previewParts.Count > 0
-                    ? "Preview 3D da vista selecionada. Objetos selecionados: "
-                        + selectedObjectCount
+                    ? "Preview 3D do "
+                        + sourceDescription
+                        + ". Vistas inspecionadas: "
+                        + inspectedViews
+                        + ". Vistas com pecas: "
+                        + candidateViews
                         + ". Pecas carregadas: "
                         + previewParts.Count
                         + "/"
                         + selectedCount
+                        + ". Coordenadas usadas: "
+                        + (useViewLocalCoordinates ? "sistema da vista fonte" : "modelo global")
                         + "."
-                    : "Nao foi possivel montar bounds 3D das pecas da vista selecionada.";
+                    : "Nao foi possivel montar bounds 3D das pecas encontradas no desenho ativo.";
             }
             catch (Exception ex)
             {
@@ -393,6 +754,176 @@ namespace WindowsFormsApp1
             }
 
             return previewParts;
+        }
+
+        private static bool TryTransformModelBoundsToViewLocal(
+            double minX,
+            double minY,
+            double minZ,
+            double maxX,
+            double maxY,
+            double maxZ,
+            double originX,
+            double originY,
+            double originZ,
+            double axisXx,
+            double axisXy,
+            double axisXz,
+            double axisYx,
+            double axisYy,
+            double axisYz,
+            double axisZx,
+            double axisZy,
+            double axisZz,
+            out double localMinX,
+            out double localMinY,
+            out double localMinZ,
+            out double localMaxX,
+            out double localMaxY,
+            out double localMaxZ)
+        {
+            localMinX = 0.0;
+            localMinY = 0.0;
+            localMinZ = 0.0;
+            localMaxX = 0.0;
+            localMaxY = 0.0;
+            localMaxZ = 0.0;
+
+            double[] xs = { minX, maxX };
+            double[] ys = { minY, maxY };
+            double[] zs = { minZ, maxZ };
+
+            bool initialized = false;
+            for (int ix = 0; ix < xs.Length; ix++)
+            {
+                for (int iy = 0; iy < ys.Length; iy++)
+                {
+                    for (int iz = 0; iz < zs.Length; iz++)
+                    {
+                        double dx = xs[ix] - originX;
+                        double dy = ys[iy] - originY;
+                        double dz = zs[iz] - originZ;
+
+                        double lx = Dot3D(dx, dy, dz, axisXx, axisXy, axisXz);
+                        double ly = Dot3D(dx, dy, dz, axisYx, axisYy, axisYz);
+                        double lz = Dot3D(dx, dy, dz, axisZx, axisZy, axisZz);
+
+                        if (!initialized)
+                        {
+                            localMinX = lx;
+                            localMinY = ly;
+                            localMinZ = lz;
+                            localMaxX = lx;
+                            localMaxY = ly;
+                            localMaxZ = lz;
+                            initialized = true;
+                        }
+                        else
+                        {
+                            localMinX = Math.Min(localMinX, lx);
+                            localMinY = Math.Min(localMinY, ly);
+                            localMinZ = Math.Min(localMinZ, lz);
+                            localMaxX = Math.Max(localMaxX, lx);
+                            localMaxY = Math.Max(localMaxY, ly);
+                            localMaxZ = Math.Max(localMaxZ, lz);
+                        }
+                    }
+                }
+            }
+
+            return initialized;
+        }
+
+        private static List<ExplodedPartPlan> CollectPartPlansFromDrawing(
+            object activeDrawing,
+            out int inspectedViews,
+            out int candidateViews)
+        {
+            inspectedViews = 0;
+            candidateViews = 0;
+
+            List<ExplodedPartPlan> mergedPlans = new List<ExplodedPartPlan>();
+            if (activeDrawing == null)
+            {
+                return mergedPlans;
+            }
+
+            object sheet = InvokeParameterlessMethod(activeDrawing, "GetSheet");
+            if (sheet == null)
+            {
+                return mergedPlans;
+            }
+
+            object allObjects = InvokeParameterlessMethod(sheet, "GetAllObjects")
+                ?? InvokeParameterlessMethod(sheet, "GetObjects");
+            if (allObjects == null)
+            {
+                return mergedPlans;
+            }
+
+            MethodInfo moveNext = allObjects.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo current = allObjects.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
+            if (moveNext == null || current == null)
+            {
+                return mergedPlans;
+            }
+
+            HashSet<string> seenPartIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (true)
+            {
+                object moved = moveNext.Invoke(allObjects, null);
+                if (!(moved is bool) || !(bool)moved)
+                {
+                    break;
+                }
+
+                object drawingObject = current.GetValue(allObjects, null);
+                if (!IsViewObject(drawingObject, null))
+                {
+                    continue;
+                }
+
+                inspectedViews++;
+
+                string viewName = Convert.ToString(GetPropertyValue(drawingObject, "Name")) ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(viewName)
+                    && viewName.StartsWith(ExplodedViewPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                List<ExplodedPartPlan> viewPlans = CollectPartPlansFromView(drawingObject);
+                if (viewPlans == null || viewPlans.Count == 0)
+                {
+                    continue;
+                }
+
+                candidateViews++;
+
+                for (int i = 0; i < viewPlans.Count; i++)
+                {
+                    ExplodedPartPlan plan = viewPlans[i];
+                    if (plan == null)
+                    {
+                        continue;
+                    }
+
+                    string key = !string.IsNullOrWhiteSpace(plan.IdentifierKey)
+                        ? plan.IdentifierKey
+                        : GetIdentifierKey(plan.Identifier);
+                    if (string.IsNullOrWhiteSpace(key))
+                    {
+                        continue;
+                    }
+
+                    if (seenPartIds.Add(key))
+                    {
+                        mergedPlans.Add(plan);
+                    }
+                }
+            }
+
+            return mergedPlans;
         }
 
         private void RefreshTeklaStatus(bool updateOutput)
@@ -718,11 +1249,7 @@ namespace WindowsFormsApp1
                         bool originalCreated = false;
                         if (originalView != null)
                         {
-                            if (RotateExplodedToIsometric && !originalAutoIsoApplied)
-                            {
-                                RotateViewToIsometric(originalView);
-                                fallbackRotationCount++;
-                            }
+                            ApplyFallbackRotation(originalView, originalAutoIsoApplied, ref fallbackRotationCount);
 
                             if (ForceViewCenterToTarget(
                                     originalView,
@@ -777,11 +1304,7 @@ namespace WindowsFormsApp1
                         bool explodedCreated = false;
                         if (explodedView != null)
                         {
-                            if (RotateExplodedToIsometric && !explodedAutoIsoApplied)
-                            {
-                                RotateViewToIsometric(explodedView);
-                                fallbackRotationCount++;
-                            }
+                            ApplyFallbackRotation(explodedView, explodedAutoIsoApplied, ref fallbackRotationCount);
 
                             if (ForceViewCenterToTarget(
                                     explodedView,
@@ -867,11 +1390,7 @@ namespace WindowsFormsApp1
                         autoIsoAppliedCount++;
                     }
 
-                    if (RotateExplodedToIsometric && !autoIsoApplied)
-                    {
-                        RotateViewToIsometric(newView);
-                        fallbackRotationCount++;
-                    }
+                    ApplyFallbackRotation(newView, autoIsoApplied, ref fallbackRotationCount);
 
                     bool positioned = ForceViewCenterToTarget(
                         newView,
@@ -1188,11 +1707,7 @@ namespace WindowsFormsApp1
                         bool originalCreated = false;
                         if (originalView != null)
                         {
-                            if (RotateExplodedToIsometric && !originalAutoIsoApplied)
-                            {
-                                RotateViewToIsometric(originalView);
-                                fallbackRotationCount++;
-                            }
+                            ApplyFallbackRotation(originalView, originalAutoIsoApplied, ref fallbackRotationCount);
 
                             if (ForceViewCenterToTarget(
                                     originalView,
@@ -1247,11 +1762,7 @@ namespace WindowsFormsApp1
                         bool explodedCreated = false;
                         if (explodedView != null)
                         {
-                            if (RotateExplodedToIsometric && !explodedAutoIsoApplied)
-                            {
-                                RotateViewToIsometric(explodedView);
-                                fallbackRotationCount++;
-                            }
+                            ApplyFallbackRotation(explodedView, explodedAutoIsoApplied, ref fallbackRotationCount);
 
                             if (ForceViewCenterToTarget(
                                     explodedView,
@@ -1337,11 +1848,7 @@ namespace WindowsFormsApp1
                         autoIsoAppliedCount++;
                     }
 
-                    if (RotateExplodedToIsometric && !autoIsoApplied)
-                    {
-                        RotateViewToIsometric(newView);
-                        fallbackRotationCount++;
-                    }
+                    ApplyFallbackRotation(newView, autoIsoApplied, ref fallbackRotationCount);
 
                     bool positioned = ForceViewCenterToTarget(
                         newView,
@@ -1814,11 +2321,7 @@ namespace WindowsFormsApp1
 
                         if (originalView != null)
                         {
-                            if (RotateExplodedToIsometric && !originalAutoIsoApplied)
-                            {
-                                RotateViewToIsometric(originalView);
-                                fallbackRotationCount++;
-                            }
+                            ApplyFallbackRotation(originalView, originalAutoIsoApplied, ref fallbackRotationCount);
 
                             if (ForceViewCenterToTarget(
                                     originalView,
@@ -1873,11 +2376,7 @@ namespace WindowsFormsApp1
                         bool explodedCreated = false;
                         if (explodedView != null)
                         {
-                            if (RotateExplodedToIsometric && !explodedAutoIsoApplied)
-                            {
-                                RotateViewToIsometric(explodedView);
-                                fallbackRotationCount++;
-                            }
+                            ApplyFallbackRotation(explodedView, explodedAutoIsoApplied, ref fallbackRotationCount);
 
                             if (ForceViewCenterToTarget(
                                     explodedView,
@@ -1968,11 +2467,7 @@ namespace WindowsFormsApp1
                         autoIsoAppliedCount++;
                     }
 
-                    if (RotateExplodedToIsometric && !autoIsoApplied)
-                    {
-                        RotateViewToIsometric(newView);
-                        fallbackRotationCount++;
-                    }
+                    ApplyFallbackRotation(newView, autoIsoApplied, ref fallbackRotationCount);
 
                     bool positioned = ForceViewCenterToTarget(
                         newView,
@@ -2787,6 +3282,95 @@ namespace WindowsFormsApp1
                         axisZSheetX,
                         axisZSheetY,
                         spanZ / scaleDivisor,
+                        SidePositiveContourColor,
+                        "Z"))
+                {
+                    created++;
+                }
+            }
+
+            return created;
+        }
+
+        private static int TryCreatePreviewAlignedTestAxesOverlay(
+            object viewBase,
+            double centerX,
+            double centerY,
+            double centerZ,
+            double axisLength,
+            double axisXDirX,
+            double axisXDirY,
+            double axisYDirX,
+            double axisYDirY,
+            double axisZDirX,
+            double axisZDirY,
+            bool drawAxisX,
+            bool drawAxisY,
+            bool drawAxisZ)
+        {
+            if (viewBase == null)
+            {
+                return 0;
+            }
+
+            double safeLength = Math.Max(TestAxisMinimumLength, axisLength);
+            int created = 0;
+
+            double xDirX = axisXDirX;
+            double xDirY = axisXDirY;
+            double yDirX = axisYDirX;
+            double yDirY = axisYDirY;
+            double zDirX = axisZDirX;
+            double zDirY = axisZDirY;
+
+            bool hasX = NormalizeVector2D(ref xDirX, ref xDirY);
+            bool hasY = NormalizeVector2D(ref yDirX, ref yDirY);
+            bool hasZ = NormalizeVector2D(ref zDirX, ref zDirY);
+
+            if (drawAxisX && hasX)
+            {
+                if (TryCreateCenteredTestAxisLine(
+                        viewBase,
+                        centerX,
+                        centerY,
+                        centerZ,
+                        xDirX,
+                        xDirY,
+                        safeLength,
+                        OtherPlaneContourColor,
+                        "X"))
+                {
+                    created++;
+                }
+            }
+
+            if (drawAxisY && hasY)
+            {
+                if (TryCreateCenteredTestAxisLine(
+                        viewBase,
+                        centerX,
+                        centerY,
+                        centerZ,
+                        yDirX,
+                        yDirY,
+                        safeLength,
+                        SideNegativeContourColor,
+                        "Y"))
+                {
+                    created++;
+                }
+            }
+
+            if (drawAxisZ && hasZ)
+            {
+                if (TryCreateCenteredTestAxisLine(
+                        viewBase,
+                        centerX,
+                        centerY,
+                        centerZ,
+                        zDirX,
+                        zDirY,
+                        safeLength,
                         SidePositiveContourColor,
                         "Z"))
                 {
@@ -5880,6 +6464,126 @@ namespace WindowsFormsApp1
             return removed;
         }
 
+        private static int DeleteExistingTestAxes(object sheet)
+        {
+            if (sheet == null)
+            {
+                return 0;
+            }
+
+            List<object> objectsToDelete = new List<object>();
+            CollectTestAxisObjectsFromContainer(sheet, objectsToDelete);
+
+            object allObjects = InvokeParameterlessMethod(sheet, "GetAllObjects");
+            if (allObjects != null)
+            {
+                MethodInfo moveNext = allObjects.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
+                PropertyInfo current = allObjects.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
+                if (moveNext != null && current != null)
+                {
+                    while (true)
+                    {
+                        object moved = moveNext.Invoke(allObjects, null);
+                        if (!(moved is bool) || !(bool)moved)
+                        {
+                            break;
+                        }
+
+                        object drawingObject = current.GetValue(allObjects, null);
+                        if (!IsViewObject(drawingObject, null))
+                        {
+                            continue;
+                        }
+
+                        CollectTestAxisObjectsFromContainer(drawingObject, objectsToDelete);
+                    }
+                }
+            }
+
+            int removed = 0;
+            for (int i = 0; i < objectsToDelete.Count; i++)
+            {
+                bool? deleted = InvokeBoolMethod(objectsToDelete[i], "Delete");
+                if (deleted.HasValue && deleted.Value)
+                {
+                    removed++;
+                }
+            }
+
+            return removed;
+        }
+
+        private static void CollectTestAxisObjectsFromContainer(object container, List<object> targets)
+        {
+            if (container == null || targets == null)
+            {
+                return;
+            }
+
+            object allObjects = InvokeParameterlessMethod(container, "GetAllObjects")
+                ?? InvokeParameterlessMethod(container, "GetObjects");
+            if (allObjects == null)
+            {
+                return;
+            }
+
+            MethodInfo moveNext = allObjects.GetType().GetMethod("MoveNext", BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo current = allObjects.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
+            if (moveNext == null || current == null)
+            {
+                return;
+            }
+
+            while (true)
+            {
+                object moved = moveNext.Invoke(allObjects, null);
+                if (!(moved is bool) || !(bool)moved)
+                {
+                    break;
+                }
+
+                object drawingObject = current.GetValue(allObjects, null);
+                if (!IsTestAxisObject(drawingObject))
+                {
+                    continue;
+                }
+
+                if (!targets.Contains(drawingObject))
+                {
+                    targets.Add(drawingObject);
+                }
+            }
+        }
+
+        private static bool IsTestAxisObject(object drawingObject)
+        {
+            if (drawingObject == null)
+            {
+                return false;
+            }
+
+            if (HasTestAxisNamePrefix(drawingObject))
+            {
+                return true;
+            }
+
+            object attributes = GetPropertyValue(drawingObject, "Attributes");
+            return HasTestAxisNamePrefix(attributes);
+        }
+
+        private static bool HasTestAxisNamePrefix(object target)
+        {
+            if (target == null)
+            {
+                return false;
+            }
+
+            object rawName = GetPropertyValue(target, "Name");
+            string name = rawName != null ? rawName.ToString() : string.Empty;
+            return !string.IsNullOrWhiteSpace(name)
+                && name.StartsWith(TestAxisNamePrefix, StringComparison.OrdinalIgnoreCase);
+        }
+
         private static void CollectHelperOverlaysFromContainer(object container, List<object> targets)
         {
             if (container == null || targets == null)
@@ -7646,8 +8350,13 @@ namespace WindowsFormsApp1
 
         private static void RotateViewToIsometric(object view)
         {
-            InvokeMethod(view, "RotateViewOnAxisX", -35.264);
-            InvokeMethod(view, "RotateViewOnAxisY", 45.0);
+            RotateViewToAngles(view, -35.264, 45.0);
+        }
+
+        private static void RotateViewToAngles(object view, double rotationXDegrees, double rotationYDegrees)
+        {
+            InvokeMethod(view, "RotateViewOnAxisX", rotationXDegrees);
+            InvokeMethod(view, "RotateViewOnAxisY", rotationYDegrees);
         }
 
         private static double GetSourceViewScale(object sourceView)
@@ -8088,5 +8797,6 @@ namespace WindowsFormsApp1
         }
     }
 }
+
 
 
