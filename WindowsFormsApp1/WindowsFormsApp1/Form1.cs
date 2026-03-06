@@ -1046,19 +1046,28 @@ namespace WindowsFormsApp1
             }
         }
 
-        private void btnExplodirNoRetangulo_Click(object sender, EventArgs e)
+        private void btnCriarFolhaInteira_Click(object sender, EventArgs e)
+        {
+            CriarVistaExplodidaEmArea(false);
+        }
+
+        private void btnCriarAreaDefinida_Click(object sender, EventArgs e)
+        {
+            CriarVistaExplodidaEmArea(true);
+        }
+
+        private void CriarVistaExplodidaEmArea(bool useSelectedArea)
         {
             bool usePlaneXY = chkPlanoXY.Checked;
             bool usePlaneXZ = chkPlanoXZ.Checked;
             bool usePlaneZY = chkPlanoZY.Checked;
             bool ghostLineEnabled = chkGhostLinhas.Checked;
             bool colorirEnabled = chkColorir.Checked;
-            bool resizeEnabled = chkResize.Checked;
 
             if (!usePlaneXY && !usePlaneXZ && !usePlaneZY)
             {
                 UpdateStatus("Falha: selecione pelo menos um plano (xy/xz/zy).", Color.DarkOrange);
-                SetOutput("Marque ao menos um checkbox de plano antes de explodir no retangulo.");
+                SetOutput("Marque ao menos um checkbox de plano antes de criar a vista ajustada.");
                 return;
             }
 
@@ -1094,7 +1103,7 @@ namespace WindowsFormsApp1
                 if (activeDrawing == null)
                 {
                     UpdateStatus("Falha: nenhum desenho aberto no Tekla.", Color.DarkOrange);
-                    SetOutput("Abra um desenho no Tekla antes de usar o ajuste por retangulo.");
+                    SetOutput("Abra um desenho no Tekla antes de criar a vista ajustada.");
                     return;
                 }
 
@@ -1112,8 +1121,8 @@ namespace WindowsFormsApp1
                 double rectMaxY;
                 int selectedObjectCount = 0;
                 int boundedSelectedCount = 0;
-                string targetAreaSource = resizeEnabled ? "retangulo selecionado" : "folha inteira";
-                bool hasTargetRectangle = resizeEnabled
+                string targetAreaSource = useSelectedArea ? "area definida" : "folha inteira";
+                bool hasTargetRectangle = useSelectedArea
                     ? TryGetSelectedPlacementRectangle(
                         drawingHandler,
                         out rectMinX,
@@ -1131,9 +1140,9 @@ namespace WindowsFormsApp1
 
                 if (!hasTargetRectangle)
                 {
-                    if (resizeEnabled)
+                    if (useSelectedArea)
                     {
-                        UpdateStatus("Falha: retangulo selecionado nao encontrado.", Color.DarkOrange);
+                        UpdateStatus("Falha: area definida nao encontrada.", Color.DarkOrange);
                         SetOutput("Selecione o retangulo de area (ou objetos que o delimitem) e clique novamente.");
                     }
                     else
@@ -1267,7 +1276,7 @@ namespace WindowsFormsApp1
                     rectMinY,
                     rectMaxX,
                     rectMaxY,
-                    !resizeEnabled,
+                    !useSelectedArea,
                     out fitScaleFactor,
                     out anchorX,
                     out anchorY,
@@ -1555,16 +1564,18 @@ namespace WindowsFormsApp1
                 double rectHeight = Math.Abs(rectMaxY - rectMinY);
 
                 StringBuilder report = new StringBuilder();
-                report.AppendLine("Vista explodida dentro do retangulo selecionado");
-                report.AppendLine("----------------------------------------------");
+                report.AppendLine(useSelectedArea
+                    ? "Vista explodida em area definida"
+                    : "Vista explodida em folha inteira");
+                report.AppendLine("--------------------------------");
                 report.AppendLine("Planos ativos: " + selectedPlanes);
                 report.AppendLine("Ghost + linha: " + (ghostLineEnabled ? "ligado" : "desligado"));
                 report.AppendLine("Colorir: " + (colorirEnabled ? "ligado" : "desligado"));
-                report.AppendLine("Usar retangulo: " + (resizeEnabled ? "ligado" : "desligado"));
+                report.AppendLine("Modo: " + targetAreaSource);
                 report.AppendLine("Area alvo usada: " + targetAreaSource);
                 report.AppendLine("Objetos selecionados no desenho: " + selectedObjectCount);
                 report.AppendLine("Objetos usados para retangulo: " + boundedSelectedCount);
-                report.AppendLine("Retangulo selecionado: W=" + rectWidth.ToString("0.###") + " H=" + rectHeight.ToString("0.###"));
+                report.AppendLine("Area alvo: W=" + rectWidth.ToString("0.###") + " H=" + rectHeight.ToString("0.###"));
                 report.AppendLine("Vista isometrica detectada: " + (string.IsNullOrWhiteSpace(sourceViewName) ? "(sem nome)" : sourceViewName));
                 report.AppendLine("Score isometrico da vista: " + sourceIsoScore.ToString("0.###"));
                 report.AppendLine("Vistas inspecionadas na folha: " + inspectedViews);
@@ -1583,9 +1594,9 @@ namespace WindowsFormsApp1
                 report.AppendLine("Fator de fit aplicado: " + fitScaleFactor.ToString("0.###"));
                 report.AppendLine("Layout base calculado: W=" + layoutWidth.ToString("0.###") + " H=" + layoutHeight.ToString("0.###"));
                 report.AppendLine("Layout ajustado para fit: W=" + fittedLayoutWidth.ToString("0.###") + " H=" + fittedLayoutHeight.ToString("0.###"));
-                report.AppendLine("Retangulo verde informado: W=" + rectWidth.ToString("0.###") + " H=" + rectHeight.ToString("0.###"));
-                report.AppendLine("Retangulo amarelo criado: W=" + yellowRectWidth.ToString("0.###") + " H=" + yellowRectHeight.ToString("0.###"));
-                report.AppendLine("Retangulo amarelo criado: " + (fitRectangleCreated ? "sim" : "nao"));
+                report.AppendLine("Area alvo informada: W=" + rectWidth.ToString("0.###") + " H=" + rectHeight.ToString("0.###"));
+                report.AppendLine("Retangulo de fit criado: W=" + yellowRectWidth.ToString("0.###") + " H=" + yellowRectHeight.ToString("0.###"));
+                report.AppendLine("Retangulo de fit criado: " + (fitRectangleCreated ? "sim" : "nao"));
                 report.AppendLine("Escala da vista fonte: " + sourceScale.ToString("0.###"));
                 report.AppendLine("Escala usada na nova vista: " + sourceScaleForFit.ToString("0.###"));
                 report.AppendLine("Perfil de vista solicitado: " + ExplodedViewAttributeFile);
@@ -1614,16 +1625,20 @@ namespace WindowsFormsApp1
 
                 if (created > 0)
                 {
-                    UpdateStatus("Sucesso: vista explodida criada dentro do retangulo.", Color.DarkGreen);
+                    UpdateStatus(
+                        useSelectedArea
+                            ? "Sucesso: vista explodida criada na area definida."
+                            : "Sucesso: vista explodida criada na folha inteira.",
+                        Color.DarkGreen);
                 }
                 else
                 {
-                    UpdateStatus("Falha: nenhuma vista foi criada no retangulo.", Color.DarkOrange);
+                    UpdateStatus("Falha: nenhuma vista foi criada na area alvo.", Color.DarkOrange);
                 }
             }
             catch (Exception ex)
             {
-                UpdateStatus("Erro ao explodir no retangulo: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
+                UpdateStatus("Erro ao criar vista ajustada: " + GetInnermostExceptionMessage(ex), Color.DarkRed);
             }
         }
 
